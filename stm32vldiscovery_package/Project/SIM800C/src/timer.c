@@ -73,6 +73,7 @@ void TIM6_DAC_IRQHandler(void)
 	u8 *p_temp = NULL;
 	u8 temp_array[3] = {0};
 	u8 offset = 0;
+	u8 temp = 0xAA;
 
 	if(TIM_GetITStatus(TIM6, TIM_IT_Update) != RESET)					  //是更新中断
 	{	
@@ -96,6 +97,7 @@ void TIM6_DAC_IRQHandler(void)
 			if(Count_Local_Time_Dev_01 >= 1000)  //这里的1000要根据实际情况进行修改
 			{
 				Flag_Local_Time_Dev_01_OK = 0xAA;
+				//关闭设备
 			
 			}
 		}
@@ -129,19 +131,19 @@ void TIM6_DAC_IRQHandler(void)
 			
 
 
-		
+		temp = Receive_Data_From_USART();
 		//接收到了SIM800C的信息
-		if(0x01 == Receive_Data_From_USART())	
+		if(0x01 == temp)	
 		{
 			/*暂时不做处理*/
 			//清零串口3的接收标志变量
 			
 			BSP_Printf("USART3_RX_BUF_SIM800C:%s\r\n",USART3_RX_BUF);
-			Clear_Usart3();
+			//Clear_Usart3();
 
 		}
 		//接收到了服务器的信息
-		if(0x00 == Receive_Data_From_USART())	
+		if(0x00 == temp)	
 		{
 			BSP_Printf("USART3_RX_BUF_服务器:%s\r\n",USART3_RX_BUF);
 			BSP_Printf("Count_Wait_Echo_0X00:%ld\r\n",Count_Wait_Echo);
@@ -166,7 +168,7 @@ void TIM6_DAC_IRQHandler(void)
 			}
 			//校验值转化为数字，并打印
 			result_temp = atoi((const char *)(temp_array));	
-      BSP_Printf("result_temp:%d\r\n",result_temp);			
+			BSP_Printf("result_temp:%d\r\n",result_temp);			
 			p_temp = USART3_RX_BUF;
 			
 			//回文正确
@@ -194,6 +196,9 @@ void TIM6_DAC_IRQHandler(void)
 										if(strstr((const char*)USART3_RX_BUF,"TRVBP03"))
 										{
 											Flag_Receive_Enable = 0xAA;
+											//这里需要判断要打开的设备是不是已经在运行了，
+											//如果是，那就不理这条命令，让服务器通过下一条心跳判断
+											//如果不是，需要保存信息到一个新的buf里面在主循环处理
 										}
 										else
 												//收到运行结束回文
@@ -205,7 +210,7 @@ void TIM6_DAC_IRQHandler(void)
 												{
 													Flag_Check_error = 0xAA;
 												}
-												Clear_Usart3();
+			//Clear_Usart3();
 			}   //回文正确
 			
 			
@@ -216,7 +221,7 @@ void TIM6_DAC_IRQHandler(void)
 				//这里不再判定是那条语句接收出错，因为对错误的内容的进行判定，意义不大，由服务器程序来判定重发的内容
 				//同理，嵌入式程序在接收到服务器的重发请求时，也要判定是要重发那条语句
 				Flag_Check_error = 0xAA;
-				Clear_Usart3();
+				//Clear_Usart3();
 			}
 		}
 		TIM_SetCounter(TIM6,0); 

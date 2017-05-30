@@ -5,7 +5,7 @@
 #include "usart3.h" 
 #include "timer.h"
 #include "delay.h"
-
+#include <stdlib.h>
 
 /* 这个宏仅用于调试阶段排错 */
 #define BSP_Printf		printf
@@ -15,6 +15,7 @@
 
 extern u8 result_Send_Data;
 extern u8 count_Send_Data;
+extern u8 current_cmd;
 #define TOTAL_SEND_DATA 3
 #define COUNT_AT 10
 
@@ -60,6 +61,7 @@ u8* SIM800_Check_Cmd(u8 *str)
 	if(USART3_RX_STA&0X8000)		//接收到一次数据了
 	{ 
 		USART3_RX_BUF[USART3_RX_STA&0X7FFF] = 0;//添加结束符
+		BSP_Printf("recv: %s\r\n", USART3_RX_BUF);
 		strx = strstr((const char*)USART3_RX_BUF,(const char*)str);
 	} 
 	return (u8*)strx;
@@ -101,8 +103,7 @@ u8 SIM800_Send_Cmd(u8 *cmd,u8 *ack,u16 waittime)
 				//没有得到有效的回文信息，清零串口3，继续下次的接收
 				else
 				{
-						Clear_buffer((char*)USART3_RX_BUF,USART3_MAX_RECV_LEN);	
-						USART3_RX_STA = 0;		    	//清零	
+					Clear_Usart3();
 				}
 			} 
 		}
@@ -175,7 +176,23 @@ u8 Disable_Echo(void)
 u8 Check_SIM_Card(void)
 {
 	u8 count = 0;
+	delay_ms(2000);	
 	while(SIM800_Send_Cmd("AT+CPIN?","OK",200))//检测是否应答AT指令 
+	{
+		if(count < COUNT_AT)
+		{
+			count += 1;
+			delay_ms(2000);			
+		}
+		else
+		{
+			Flag_AT_Unusual = 0xAA;
+			return 1;		
+		}
+	}
+	delay_ms(2000);	
+	count = 0;
+	while(SIM800_Send_Cmd("AT+COPS?","CHINA",500))//检测是否应答AT指令 
 	{
 		if(count < COUNT_AT)
 		{
@@ -200,7 +217,12 @@ u8 Check_CSQ(void)
 	u8 count = 0;
 	u8 *p1 = NULL; 
 	u8 *p2 = NULL;
-  u8 p[50] = {0}; 
+	u8 p[50] = {0}; 
+  	u8 signal=0;
+
+while(signal < 10)
+{
+	delay_ms(2000);
 	while(SIM800_Send_Cmd("AT+CSQ","+CSQ:",200))//检测是否应答AT指令 
 	{
 		if(count < COUNT_AT)
@@ -219,10 +241,13 @@ u8 Check_CSQ(void)
 	p1=(u8*)strstr((const char*)(USART3_RX_BUF),":");
 	p2=(u8*)strstr((const char*)(p1),",");
 	p2[0]=0;//加入结束符
-	sprintf((char*)p,"信号质量:%s",p1+2);
+	signal = atoi((const char *)(p1+2));
+	//sprintf((char*)p,"信号质量:%s",p1+2);
+	sprintf((char*)p,"信号质量:%d",signal);
 	BSP_Printf("%s\r\n",p);
 	//AT指令的回文已经处理完成，清零
 	Clear_Usart3();
+}	
 	return 0;
 }
 
@@ -271,10 +296,11 @@ u8 Get_ICCID(void)
 
 }
 
+#if 1
 u8 SIM800_GPRS_ON(void)
 {
 	u8 count = 0;
-	while(SIM800_Send_Cmd("AT+CGCLASS=\"B\"","OK",300))//检测是否应答AT指令 
+	while(SIM800_Send_Cmd("AT+CIPSTART=\"TCP\",\"42.159.117.91\",\"8090\"","CONNECT OK",300))//检测是否应答AT指令 
 	{
 		if(count < COUNT_AT)
 		{
@@ -287,91 +313,12 @@ u8 SIM800_GPRS_ON(void)
 			return 1;		
 		}
 	}
-		//AT指令已经完成，并且不需要对返回值进行处理，所以直接清零
-	Clear_Usart3();
-	count = 0;
-	
-	while(SIM800_Send_Cmd("AT+CGDCONT=1,\"IP\",\"CMNET\"","OK",300))//检测是否应答AT指令 
-	{
-		if(count < COUNT_AT)
-		{
-			count += 1;
-			delay_ms(2000);			
-		}
-		else
-		{
-			Flag_AT_Unusual = 0xAA;
-			return 1;		
-		}
-	}
-	Clear_Usart3();
-	count = 0;
-	
-	while(SIM800_Send_Cmd("AT+CGATT=1","OK",300))//检测是否应答AT指令 
-	{
-		if(count < COUNT_AT)
-		{
-			count += 1;
-			delay_ms(2000);			
-		}
-		else
-		{
-			Flag_AT_Unusual = 0xAA;
-			return 1;		
-		}
-	}
-	Clear_Usart3();
-	count = 0;
-	
-	while(SIM800_Send_Cmd("AT+CIPCSGP=1,\"CMNET\"","OK",300))//检测是否应答AT指令 
-	{
-		if(count < COUNT_AT)
-		{
-			count += 1;
-			delay_ms(2000);			
-		}
-		else
-		{
-			Flag_AT_Unusual = 0xAA;
-			return 1;		
-		}
-	}
-	Clear_Usart3();
-	count = 0;
 
-	while(SIM800_Send_Cmd("AT+CIPHEAD=1","OK",300))//检测是否应答AT指令 
-	{
-		if(count < COUNT_AT)
-		{
-			count += 1;
-			delay_ms(2000);			
-		}
-		else
-		{
-			Flag_AT_Unusual = 0xAA;
-			return 1;		
-		}
-	}
-	Clear_Usart3();
-	count = 0;
-	
-	while(Link_Server_AT(0,ipaddr,port))
-	{
-		if(count < COUNT_AT)
-		{
-		  count += 1;
-			delay_ms(2000);
-		}
-		else
-		{
-			Flag_AT_Unusual = 0xAA;
-			return 1;
-		}
-	}
 	//AT指令的回文已经处理完成，清零
 	Clear_Usart3();
 	return 0;		
 }
+#endif
 
 
 //关闭GPRS的链接
@@ -779,9 +726,9 @@ void SIM800_PWRKEY_ON(void)
  }
 	//开机控制引脚释放
  GPIO_ResetBits(GPIOB,GPIO_Pin_9);
- for(i = 0; i < 1; i++)
+ for(i = 0; i < 10; i++)
  {
-	 delay_ms(500);	
+	 delay_ms(1000);	
  }
 
 }
@@ -809,19 +756,55 @@ void SIM800_PWRKEY_OFF(void)
  }
 	//开机控制引脚释放
  GPIO_ResetBits(GPIOB,GPIO_Pin_9);
- for(i = 0; i < 1; i++)
+ for(i = 0; i < 10; i++)
  {
-	 delay_ms(500);	
+	 delay_ms(1000);	
  }
 
 }
 
+void SIM800_GPRS_Restart(void)
+{
+	u8 temp = 0;
+	SIM800_GPRS_OFF();
+	for(temp = 0; temp < 30; temp++)
+	{
+		delay_ms(1000);
+	}
+	SIM800_GPRS_ON();
 
+}
 
+void SIM800_Powerkey_Restart(void)
+{
+	u8 temp = 0;
+	SIM800_PWRKEY_OFF();
+	for(temp = 0; temp < 30; temp++)
+	{
+		delay_ms(1000);
+	}
+	SIM800_PWRKEY_ON();
+
+}
+
+void SIM800_Power_Restart(void)
+{
+	u8 temp = 0;
+	SIM800_PWRKEY_OFF();
+	SIM800_POWER_OFF();
+	
+	for(temp = 0; temp < 30; temp++)
+	{
+		delay_ms(1000);
+	}
+	SIM800_POWER_ON();
+	SIM800_PWRKEY_ON();
+
+}
 
 //返回1		某条AT指令执行错误
 //返回0   成功连接上服务器
-u8 SIM800_Link_Server(void)
+u8 SIM800_Link_Server_AT(void)
 {
 //操作AT指令进行联网操作
 	Check_Module();
@@ -953,761 +936,48 @@ u8 SIM800_Link_Server(void)
  return 0;			
 }
 
-
-	
-
-
-//发送登陆信息给服务器
-u8 Send_Login_Data(void)
+u8 SIM800_Link_Server_Powerkey(void)
 {
-	Get_Login_Data();
-	BSP_Printf("Login_Buffer:%s\r\n",Login_Buffer);
-	count_Send_Data = TOTAL_SEND_DATA;
-	while(count_Send_Data--)
+	u8 temp_Powerkey = 5;
+	u8 temp = 0xAA;	
+	while(temp_Powerkey != 0)
 	{
-		result_Send_Data = Send_Data_To_Server(Login_Buffer);
-		//正确发送
-		if(result_Send_Data == 0x00)
+		temp_Powerkey -= 1;
+		temp = SIM800_Link_Server_AT();
+		if(temp == 0x01)
 		{
-			break;
+			SIM800_Powerkey_Restart();
 		}
-		//延时，重发
-		else
+		if(temp == 0x00)
 		{
-			delay_ms(2000);
-			delay_ms(2000);
-		}
+			return 0;
+		}	
 	}
-	
-  if(count_Send_Data == 0)
-	{
-		return 1;
-	}
-	
-	result_Send_Data = 0xAA;
-	Flag_ACK_Resend = 0x01;
-	Flag_ACK_Echo = 0x01;
-	//开启等待服务器回文的超时机制
-	Flag_Wait_Echo = 0xAA;
-	
-  return 0;
+
+	return 1;
 
 }
-void Send_Login_Data_To_Server(void)
+u8 SIM800_Link_Server(void)
 {
-	u8 temp = 0;
-	while(1)
+	u8 temp_Power = 5;
+	u8 temp = 0xAA;
+	while(temp_Power != 0)
 	{
-		if(Send_Login_Data() == 0x01)
+		temp_Power -= 1;
+		temp = SIM800_Link_Server_Powerkey();
+		if(temp == 0x01)
 		{
-			//如果发送函数执行若干次仍然失败，只能延时后重启GPRS链接
-			BSP_Printf("SIM800C关闭GPRS_Login\r\n");
-			SIM800_GPRS_OFF();
-			
-			for(temp = 0; temp < 30; temp++)
-			{
-				delay_ms(1000);
-			}
-			BSP_Printf("SIM800C打开GPRS_Login\r\n");
-			SIM800_GPRS_ON();
+			SIM800_Power_Restart();
 		}
-		else
+		if(temp == 0x00)
 		{
-			break;
-		}
-	}
-}
-
-
-//发送重发命令给服务器
-u8 Send_Resend_Data(void)
-{
-	Get_Resend_Data();
-	count_Send_Data = TOTAL_SEND_DATA;
-	while(count_Send_Data--)
-	{
-		result_Send_Data = Send_Data_To_Server(Resend_Buffer);
-		//正确发送
-		if(result_Send_Data == 0x00)
-		{
-			break;
-		}
-		//延时，重发
-		else
-		{
-			delay_ms(2000);
-			delay_ms(2000);
-		}
+			return 0;
+		}	
 	}
 	
-  if(count_Send_Data == 0)
-	{
-		return 1;
-	}
-	
-	result_Send_Data = 0xAA;
-	//Flag_ACK_Resend = 0x03;
-  return 0;
+	return 1;
 
 }
-void Send_Resend_Data_To_Server(void)
-{
-	u8 temp = 0;
-	while(1)
-	{
-		if(Send_Resend_Data() == 0x01)
-		{
-			//如果发送函数执行若干次仍然失败，只能延时后重启GPRS链接
-			SIM800_GPRS_OFF();
-			for(temp = 0; temp < 30; temp++)
-			{
-				delay_ms(1000);
-			}
-			SIM800_GPRS_ON();
-		}
-		else
-		{
-			break;
-		}
-	}
-}
-
-void Get_Enable_Data(void)
-{
-	char temp_Enable_Buffer[LENGTH_ENABLE] = {0}; 
-	char temp_Result[3] = {0}; 
-	u8 Result_Validation = 0;
-	u8 i = 0;
-	char temp00[] = "TRVAP03,019,";
-	char temp01[] = ",";
-	char temp02[] = "#";
-	char temp03[] = "0";
-	char temp04[] = "00";
-	char temp05[] = "0000,";
-	char temp06[] = "11223344,";
-	
-
-	//清零Resend_Buffer
-	for(i = 0; i < LENGTH_ENABLE; i++)
-	{
-		Enbale_Buffer[i] = 0;
-	}
-	
-	//添加TRVAP01,FF,000,
-	
-	for(i = 0; i < strlen(temp00); i++)
-	{
-		temp_Enable_Buffer[i] = temp00[i];
-	}
-	strcat(Enbale_Buffer,temp_Enable_Buffer);
-	Clear_buffer(temp_Enable_Buffer,LENGTH_ENABLE);
-	
-		//添加设备状态，暂时固定为0000,
-	//temp05
-	for(i = 0; i < strlen(temp05); i++)
-	{
-		temp_Enable_Buffer[i] = temp05[i];
-	}
-	
-	strcat(Enbale_Buffer,temp_Enable_Buffer);
-	Clear_buffer(temp_Enable_Buffer,LENGTH_ENABLE);
-	
-	//添加设备运行时间，暂时固定为1234,
-	//temp06
-	for(i = 0; i < strlen(temp06); i++)
-	{
-		temp_Enable_Buffer[i] = temp06[i];
-	}
-	
-	strcat(Enbale_Buffer,temp_Enable_Buffer);
-	Clear_buffer(temp_Enable_Buffer,LENGTH_ENABLE);
-	
-	//添加校验和
-	Result_Validation = Check_Xor_Sum(Enbale_Buffer, strlen(Enbale_Buffer));
-	
-	//校验值转化为字符串
-  sprintf(temp_Result,"%d",Result_Validation);
-	
-	//添加校验值
-	//判断校验值是否是三个字符
-	//校验值是三个字符，直接拼接
-
-	if(strlen(temp_Result) == 1)
-	{
-		//添加校验值
-		for(i = 0; i < 2; i++)
-		{
-			temp_Enable_Buffer[i] = temp04[i];
-		}
-		temp_Enable_Buffer[2] = temp_Result[0];
-		
-		
-		strcat(Enbale_Buffer,temp_Enable_Buffer);
-		Clear_buffer(temp_Result,3);
-	  Clear_buffer(temp_Enable_Buffer,LENGTH_ENABLE);
-	}
-	if(strlen(temp_Result) == 2)
-	{
-		//添加校验值
-		temp_Enable_Buffer[0] = temp03[0];
-		temp_Enable_Buffer[1] = temp_Result[0];
-		temp_Enable_Buffer[2] = temp_Result[1];
-		
-		strcat(Enbale_Buffer,temp_Enable_Buffer);
-		Clear_buffer(temp_Result,3);
-	  Clear_buffer(temp_Enable_Buffer,LENGTH_ENABLE);
-	}
-	if(strlen(temp_Result) == 3)
-	{
-			//添加校验值
-		for(i = 0; i < strlen(temp_Result); i++)
-		{
-			temp_Enable_Buffer[i] = temp_Result[i];
-		}
-		strcat(Enbale_Buffer,temp_Enable_Buffer);
-		Clear_buffer(temp_Result,3);
-	  Clear_buffer(temp_Enable_Buffer,LENGTH_ENABLE);
-	}	
-	
-	//添加,分隔符
-		for(i = 0; i < strlen(temp01); i++)
-		{
-			temp_Enable_Buffer[i] = temp01[i];
-		}
-		strcat(Enbale_Buffer,temp_Enable_Buffer);
-		Clear_buffer(temp_Enable_Buffer,LENGTH_ENABLE);
-	
-	
-	//添加结束符  #
-	for(i = 0; i < strlen(temp02); i++)
-	{
-		temp_Enable_Buffer[i] = temp02[i];
-	}
-		strcat(Enbale_Buffer,temp_Enable_Buffer);
-		Clear_buffer(temp_Enable_Buffer,LENGTH_ENABLE);
-
-
-}
-
-//发送接收业务指令完成回文给服务器
-u8 Send_Enable_Data(void)
-{
-	Get_Enable_Data();
-	count_Send_Data = TOTAL_SEND_DATA;
-	while(count_Send_Data--)
-	{
-		result_Send_Data = Send_Data_To_Server(Heart_Buffer);
-		//正确发送
-		if(result_Send_Data == 0x00)
-		{
-			break;
-		}
-		//延时，重发
-		else
-		{
-			delay_ms(2000);
-			delay_ms(2000);
-		}
-	}
-	
-  if(count_Send_Data == 0)
-	{
-		return 1;
-	}
-	
-	result_Send_Data = 0xAA;
-	Flag_ACK_Resend = 0x02;
-	Flag_ACK_Echo = 0x02;
-	//开启等待服务器回文的超时机制
-	Flag_Wait_Echo = 0xAA;
-	
-  return 0;
-
-
-}
-
-//发送心跳包给服务器
-u8 Send_Heart_Data(void)
-{
-	Get_Heart_Data();
-	count_Send_Data = TOTAL_SEND_DATA;
-	while(count_Send_Data--)
-	{
-		result_Send_Data = Send_Data_To_Server(Heart_Buffer);
-		//正确发送
-		if(result_Send_Data == 0x00)
-		{
-			break;
-		}
-		//延时，重发
-		else
-		{
-			delay_ms(2000);
-			delay_ms(2000);
-		}
-	}
-	
-  if(count_Send_Data == 0)
-	{
-		BSP_Printf("Send_Heart_Data函数执行超过次数，失败返回\r\n");
-		return 1;
-	}
-	
-	result_Send_Data = 0xAA;
-	Flag_ACK_Resend = 0x02;
-	Flag_ACK_Echo = 0x02;
-	//开启等待服务器回文的超时机制
-	Flag_Wait_Echo = 0xAA;
-	
-  return 0;
-
-}
-void Send_Heart_Data_To_Server(void)
-{
-	u8 temp = 0;
-	while(1)
-	{
-		if(Send_Heart_Data() == 0x01)
-		{
-			//如果发送函数执行若干次仍然失败，只能延时后重启GPRS链接
-			BSP_Printf("SIM800C关闭GPRS in Send_Heart_Data_To_Server\r\n");
-			SIM800_GPRS_OFF();
-			
-			for(temp = 0; temp < 30; temp++)
-			{
-				delay_ms(1000);
-			}
-			BSP_Printf("SIM800C打开GPRS in Send_Heart_Data_To_Server\r\n");
-			SIM800_GPRS_ON();
-			
-		}
-		else
-		{
-			break;
-		}
-	}
-}
-
-//发送接收业务指令完成命令给服务器
-void Send_Enable_Data_To_Server(void)
-{
-	u8 temp = 0;
-	while(1)
-	{
-		if(Send_Enable_Data() == 0x01)
-		{
-			//如果发送函数执行若干次仍然失败，只能延时后重启GPRS链接
-			SIM800_GPRS_OFF();
-			for(temp = 0; temp < 30; temp++)
-			{
-				delay_ms(1000);
-			}
-			SIM800_GPRS_ON();
-		}
-		else
-		{
-			break;
-		}
-	}
-
-}
-
-void Enable_Device(u8 mode)
-{
-	;
-
-}
-
-
-//发送业务执行完成指令给服务器
-u8 Send_Device_OK_Data(void)
-{
-	Get_Device_OK_Data();
-	count_Send_Data = TOTAL_SEND_DATA;
-	while(count_Send_Data--)
-	{
-		result_Send_Data = Send_Data_To_Server(Heart_Buffer);
-		//正确发送
-		if(result_Send_Data == 0x00)
-		{
-			break;
-		}
-		//延时，重发
-		else
-		{
-			delay_ms(2000);
-			delay_ms(2000);
-		}
-	}
-	
-  if(count_Send_Data == 0)
-	{
-		return 1;
-	}
-	
-	result_Send_Data = 0xAA;
-	Flag_ACK_Resend = 0x02;
-	Flag_ACK_Echo = 0x02;
-	//开启等待服务器回文的超时机制
-	Flag_Wait_Echo = 0xAA;
-	
-  return 0;
-
-}
-
-//发送设备运行结束命令给服务器
-void Send_Device_OK_To_Server(void)
-{
-	u8 temp = 0;
-	while(1)
-	{
-		if(Send_Device_OK_Data() == 0x01)
-		{
-			//如果发送函数执行若干次仍然失败，只能延时后重启GPRS链接
-			SIM800_GPRS_OFF();
-			for(temp = 0; temp < 30; temp++)
-			{
-				delay_ms(1000);
-			}
-			SIM800_GPRS_ON();
-		}
-		else
-		{
-			break;
-		}
-	}
-
-}
-
-
-
-void Get_Device_OK_Data(void)
-{
-	char temp_Device_OK_Buffer[LENGTH_DEVICE_OK] = {0}; 
-	char temp_Result[3] = {0}; 
-	u8 Result_Validation = 0;
-	u8 i = 0;
-	char temp00[] = "TRVAP05,019,";
-	char temp01[] = ",";
-	char temp02[] = "#";
-	char temp03[] = "0";
-	char temp04[] = "00";
-	char temp05[] = "0000,";
-	char temp06[] = "11223344,";
-	
-
-	//清零Resend_Buffer
-	for(i = 0; i < LENGTH_DEVICE_OK; i++)
-	{
-		Device_OK_Buffer[i] = 0;
-	}
-	
-	//添加TRVAP05,FF,
-	
-	for(i = 0; i < strlen(temp00); i++)
-	{
-		temp_Device_OK_Buffer[i] = temp00[i];
-	}
-	strcat(Device_OK_Buffer,temp_Device_OK_Buffer);
-	Clear_buffer(temp_Device_OK_Buffer,LENGTH_DEVICE_OK);
-	
-		//添加设备状态，暂时固定为0000,
-	//temp05
-	for(i = 0; i < strlen(temp05); i++)
-	{
-		temp_Device_OK_Buffer[i] = temp05[i];
-	}
-	
-	strcat(Device_OK_Buffer,temp_Device_OK_Buffer);
-	Clear_buffer(temp_Device_OK_Buffer,LENGTH_DEVICE_OK);
-	
-	//添加设备运行时间，暂时固定为1234,
-	//temp06
-	for(i = 0; i < strlen(temp06); i++)
-	{
-		temp_Device_OK_Buffer[i] = temp06[i];
-	}
-	
-	strcat(Device_OK_Buffer,temp_Device_OK_Buffer);
-	Clear_buffer(temp_Device_OK_Buffer,LENGTH_DEVICE_OK);
-	
-	//添加校验和
-	Result_Validation = Check_Xor_Sum(Device_OK_Buffer, strlen(Device_OK_Buffer));
-	
-	//校验值转化为字符串
-  sprintf(temp_Result,"%d",Result_Validation);
-	
-	//添加校验值
-	//判断校验值是否是三个字符
-	//校验值是三个字符，直接拼接
-
-	if(strlen(temp_Result) == 1)
-	{
-		//添加校验值
-		for(i = 0; i < 2; i++)
-		{
-			temp_Device_OK_Buffer[i] = temp04[i];
-		}
-		temp_Device_OK_Buffer[2] = temp_Result[0];
-		
-		
-		strcat(Device_OK_Buffer,temp_Device_OK_Buffer);
-		Clear_buffer(temp_Result,3);
-	  Clear_buffer(temp_Device_OK_Buffer,LENGTH_DEVICE_OK);
-	}
-	if(strlen(temp_Result) == 2)
-	{
-		//添加校验值
-		temp_Device_OK_Buffer[0] = temp03[0];
-		temp_Device_OK_Buffer[1] = temp_Result[0];
-		temp_Device_OK_Buffer[2] = temp_Result[1];
-		
-		strcat(Device_OK_Buffer,temp_Device_OK_Buffer);
-		Clear_buffer(temp_Result,3);
-	  Clear_buffer(temp_Device_OK_Buffer,LENGTH_DEVICE_OK);
-	}
-	if(strlen(temp_Result) == 3)
-	{
-			//添加校验值
-		for(i = 0; i < strlen(temp_Result); i++)
-		{
-			temp_Device_OK_Buffer[i] = temp_Result[i];
-		}
-		strcat(Device_OK_Buffer,temp_Device_OK_Buffer);
-		Clear_buffer(temp_Result,3);
-	  Clear_buffer(temp_Device_OK_Buffer,LENGTH_DEVICE_OK);
-	}	
-	
-	//添加,分隔符
-	for(i = 0; i < strlen(temp01); i++)
-	{
-		temp_Device_OK_Buffer[i] = temp01[i];
-	}
-		strcat(Device_OK_Buffer,temp_Device_OK_Buffer);
-	  Clear_buffer(temp_Device_OK_Buffer,LENGTH_DEVICE_OK);
-	
-	
-	//添加结束符  #
-	for(i = 0; i < strlen(temp02); i++)
-	{
-		temp_Device_OK_Buffer[i] = temp02[i];
-	}
-		strcat(Device_OK_Buffer,temp_Device_OK_Buffer);
-	  Clear_buffer(temp_Device_OK_Buffer,LENGTH_DEVICE_OK);
-
-
-}
-void Get_Resend_Data(void)
-{
-	char temp_Resend_Buffer[LENGTH_RESEND] = {0}; 
-	char temp_Result[3] = {0}; 
-	u8 Result_Validation = 0;
-	u8 i = 0;
-	char temp00[] = "TRVAP98,009,000,";
-	char temp01[] = ",";
-	char temp02[] = "#";
-	char temp03[] = "0";
-	char temp04[] = "00";
-	
-
-	//清零Resend_Buffer
-	for(i = 0; i < LENGTH_RESEND; i++)
-	{
-		Resend_Buffer[i] = 0;
-	}
-	
-	//添加TRVAP98,FF,000,
-	
-	for(i = 0; i < strlen(temp00); i++)
-	{
-		temp_Resend_Buffer[i] = temp00[i];
-	}
-	strcat(Resend_Buffer,temp_Resend_Buffer);
-	Clear_buffer(temp_Resend_Buffer,LENGTH_RESEND);
-	
-	//添加校验和
-	Result_Validation = Check_Xor_Sum(Resend_Buffer, strlen(Resend_Buffer));
-	
-	//校验值转化为字符串
-  sprintf(temp_Result,"%d",Result_Validation);
-	
-	//添加校验值
-	//判断校验值是否是三个字符
-	//校验值是三个字符，直接拼接
-
-	if(strlen(temp_Result) == 1)
-	{
-		//添加校验值
-		for(i = 0; i < 2; i++)
-		{
-			temp_Resend_Buffer[i] = temp04[i];
-		}
-		temp_Resend_Buffer[2] = temp_Result[0];
-		
-		strcat(Resend_Buffer,temp_Resend_Buffer);
-		Clear_buffer(temp_Result,3);
-		Clear_buffer(temp_Resend_Buffer,LENGTH_RESEND);
-	}
-	if(strlen(temp_Result) == 2)
-	{
-		//添加校验值
-		temp_Resend_Buffer[0] = temp03[0];
-		temp_Resend_Buffer[1] = temp_Result[0];
-		temp_Resend_Buffer[2] = temp_Result[1];
-		
-		strcat(Resend_Buffer,temp_Resend_Buffer);
-		Clear_buffer(temp_Result,3);
-		Clear_buffer(temp_Resend_Buffer,LENGTH_RESEND);
-	}
-	if(strlen(temp_Result) == 3)
-	{
-			//添加校验值
-		for(i = 0; i < strlen(temp_Result); i++)
-		{
-			temp_Resend_Buffer[i] = temp_Result[i];
-		}
-		strcat(Resend_Buffer,temp_Resend_Buffer);
-		Clear_buffer(temp_Result,3);
-		Clear_buffer(temp_Resend_Buffer,LENGTH_RESEND);
-	}	
-	
-	//添加,分隔符
-	for(i = 0; i < strlen(temp01); i++)
-	{
-		temp_Resend_Buffer[i] = temp01[i];
-	}
-	strcat(Resend_Buffer,temp_Resend_Buffer);
-	Clear_buffer(temp_Resend_Buffer,LENGTH_RESEND);
-	
-	
-	//添加结束符  #
-	for(i = 0; i < strlen(temp02); i++)
-	{
-		temp_Resend_Buffer[i] = temp02[i];
-	}
-	strcat(Resend_Buffer,temp_Resend_Buffer);
-	Clear_buffer(temp_Resend_Buffer,LENGTH_RESEND);
-
-
-}
-
-void Get_Heart_Data(void)
-{
-	char temp_Heart_Buffer[LENGTH_HEART] = {0}; 
-	char temp_Result[3] = {0}; 
-	u8 Result_Validation = 0;
-	u8 i = 0;
-	char temp00[] = "TRVAP01,023,000,";
-	char temp01[] = ",";
-	char temp02[] = "#";
-	char temp03[] = "0";
-	char temp04[] = "00";
-	char temp05[] = "0000,";
-	char temp06[] = "11223344,";
-	
-
-	//清零Resend_Buffer
-	for(i = 0; i < LENGTH_HEART; i++)
-	{
-		Heart_Buffer[i] = 0;
-	}
-	
-	//添加TRVAP01,FF,000,
-	
-	for(i = 0; i < strlen(temp00); i++)
-	{
-		temp_Heart_Buffer[i] = temp00[i];
-	}
-	strcat(Heart_Buffer,temp_Heart_Buffer);
-	Clear_buffer(temp_Heart_Buffer,LENGTH_HEART);
-	
-		//添加设备状态，暂时固定为0000,
-	//temp05
-	for(i = 0; i < strlen(temp05); i++)
-	{
-		temp_Heart_Buffer[i] = temp05[i];
-	}
-	
-	strcat(Heart_Buffer,temp_Heart_Buffer);
-	Clear_buffer(temp_Heart_Buffer,LENGTH_HEART);
-	
-	//添加设备运行时间，暂时固定为1234,
-	//temp06
-	for(i = 0; i < strlen(temp06); i++)
-	{
-		temp_Heart_Buffer[i] = temp06[i];
-	}
-	
-	strcat(Heart_Buffer,temp_Heart_Buffer);
-	Clear_buffer(temp_Heart_Buffer,LENGTH_HEART);
-	
-	//添加校验和
-	Result_Validation = Check_Xor_Sum(Heart_Buffer, strlen(Heart_Buffer));
-	
-	//校验值转化为字符串
-  sprintf(temp_Result,"%d",Result_Validation);
-	
-	//添加校验值
-	//判断校验值是否是三个字符
-	//校验值是三个字符，直接拼接
-
-	if(strlen(temp_Result) == 1)
-	{
-		//添加校验值
-		for(i = 0; i < 2; i++)
-		{
-			temp_Heart_Buffer[i] = temp04[i];
-		}
-		temp_Heart_Buffer[2] = temp_Result[0];
-		
-		
-		strcat(Heart_Buffer,temp_Heart_Buffer);
-		Clear_buffer(temp_Result,3);
-	  Clear_buffer(temp_Heart_Buffer,LENGTH_HEART);
-	}
-	if(strlen(temp_Result) == 2)
-	{
-		//添加校验值
-		temp_Heart_Buffer[0] = temp03[0];
-		temp_Heart_Buffer[1] = temp_Result[0];
-		temp_Heart_Buffer[2] = temp_Result[1];
-		
-		strcat(Heart_Buffer,temp_Heart_Buffer);
-		Clear_buffer(temp_Result,3);
-	  Clear_buffer(temp_Heart_Buffer,LENGTH_HEART);
-	}
-	if(strlen(temp_Result) == 3)
-	{
-			//添加校验值
-		for(i = 0; i < strlen(temp_Result); i++)
-		{
-			temp_Heart_Buffer[i] = temp_Result[i];
-		}
-		strcat(Heart_Buffer,temp_Heart_Buffer);
-		Clear_buffer(temp_Result,3);
-	  Clear_buffer(temp_Heart_Buffer,LENGTH_HEART);
-	}	
-	
-	//添加,分隔符
-	for(i = 0; i < strlen(temp01); i++)
-	{
-		temp_Heart_Buffer[i] = temp01[i];
-	}
-	strcat(Heart_Buffer,temp_Heart_Buffer);
-	Clear_buffer(temp_Heart_Buffer,LENGTH_HEART);
-	
-	
-	//添加结束符  #
-	for(i = 0; i < strlen(temp02); i++)
-	{
-		temp_Heart_Buffer[i] = temp02[i];
-	}
-	strcat(Heart_Buffer,temp_Heart_Buffer);
-	Clear_buffer(temp_Heart_Buffer,LENGTH_HEART);
-
-
-}
-
 
 
 void Get_Login_Data(void)
@@ -1845,9 +1115,1093 @@ void Get_Login_Data(void)
 }
 
 
+//发送登陆信息给服务器
+u8 Send_Login_Data(void)
+{
+	u8 temp = 0xAA;
+	Get_Login_Data();
+	BSP_Printf("Login_Buffer:%s\r\n",Login_Buffer);
+	temp = Send_Data_To_Server(Login_Buffer);
+	//发送成功
+	if(temp == 0x00)
+	{
+		Flag_ACK_Resend = 0x01;
+		Flag_ACK_Echo = 0x01;
+		//开启等待服务器回文的超时机制
+		Flag_Wait_Echo = 0xAA;
+		return 0;
+	}
+	//发送失败
+	if(temp == 0x01)
+	{
+		return 1;
+	}
+}
+
+u8 Send_Login_Data_Normal(void)
+{
+	u8 temp = 0;
+	u8 temp_result = 0xAA;
+	u8 count = 5;	//执行count次，还不成功的话，就重启GPRS
+	while(count != 0)
+	{
+		count -= 1;
+		Clear_Usart3();
+		temp_result = Send_Login_Data();
+		if(temp_result == 0x01)
+		{
+			//发送数据失败
+			Clear_Usart3();
+			for(temp = 0; temp < 30; temp++)
+			{
+				delay_ms(1000);
+			}
+		}
+		if(temp_result == 0x00)
+		{
+			Clear_Usart3();
+			return 0;
+		}
+	}
+	
+	Clear_Usart3();
+	return 1;
+	
+}
+
+u8 Send_Login_Data_GPRS(void)
+{
+	u8 temp_GPRS = 5;
+	u8 temp = 0xAA;
+	while(temp_GPRS != 0)
+	{
+		temp_GPRS -= 1;
+		temp = Send_Login_Data_Normal();
+		if(temp == 0x01)
+		{
+			SIM800_GPRS_Restart();
+
+		}
+		if(temp == 0x00)
+		{
+			return 0;
+		}
+	
+	}
+
+	return 1;
+
+}
+
+u8 Send_Login_Data_Powerkey(void)
+{
+	u8 temp_Powerkey = 5;
+	u8 temp = 0xAA;
+	while(temp_Powerkey != 0)
+	{
+		temp_Powerkey -= 1;
+		temp = Send_Login_Data_GPRS();
+		if(temp == 0x01)
+		{
+			SIM800_Powerkey_Restart();
+		}
+		if(temp == 0x00)
+		{
+			return 0;
+		}
+	
+	}
+
+	return 1;
+
+}
+
+u8 Send_Login_Data_To_Server(void)
+{
+	u8 temp_Power = 5;
+	u8 temp = 0xAA;
+	current_cmd = CMD_LOGIN;
+	Flag_Send_Heart = 0x00;    //把当前心跳定时器停掉，主循环里收到登录回文后会打开正常心跳
+	while(temp_Power != 0)
+	{
+		temp_Power -= 1;
+		temp = Send_Login_Data_Powerkey();
+		if(temp == 0x01)
+		{
+			SIM800_Power_Restart();
+		}
+		
+		if(temp == 0x00)
+		{
+			return 0;
+		}	
+	}
+
+	current_cmd = CMD_NONE;	
+	return 1;
+
+}
+
+
+void Get_Heart_Data(void)
+{
+	char temp_Heart_Buffer[LENGTH_HEART] = {0}; 
+	char temp_Result[3] = {0}; 
+	u8 Result_Validation = 0;
+	u8 i = 0;
+	char temp00[] = "TRVAP01,023,000,";
+	char temp01[] = ",";
+	char temp02[] = "#";
+	char temp03[] = "0";
+	char temp04[] = "00";
+	char temp05[] = "0000,";
+	char temp06[] = "11223344,";
+	
+
+	//清零Resend_Buffer
+	for(i = 0; i < LENGTH_HEART; i++)
+	{
+		Heart_Buffer[i] = 0;
+	}
+	
+	//添加TRVAP01,FF,000,
+	
+	for(i = 0; i < strlen(temp00); i++)
+	{
+		temp_Heart_Buffer[i] = temp00[i];
+	}
+	strcat(Heart_Buffer,temp_Heart_Buffer);
+	Clear_buffer(temp_Heart_Buffer,LENGTH_HEART);
+	
+		//添加设备状态，暂时固定为0000,
+	//temp05
+	for(i = 0; i < strlen(temp05); i++)
+	{
+		temp_Heart_Buffer[i] = temp05[i];
+	}
+	
+	strcat(Heart_Buffer,temp_Heart_Buffer);
+	Clear_buffer(temp_Heart_Buffer,LENGTH_HEART);
+	
+	//添加设备运行时间，暂时固定为1234,
+	//temp06
+	for(i = 0; i < strlen(temp06); i++)
+	{
+		temp_Heart_Buffer[i] = temp06[i];
+	}
+	
+	strcat(Heart_Buffer,temp_Heart_Buffer);
+	Clear_buffer(temp_Heart_Buffer,LENGTH_HEART);
+	
+	//添加校验和
+	Result_Validation = Check_Xor_Sum(Heart_Buffer, strlen(Heart_Buffer));
+	
+	//校验值转化为字符串
+  sprintf(temp_Result,"%d",Result_Validation);
+	
+	//添加校验值
+	//判断校验值是否是三个字符
+	//校验值是三个字符，直接拼接
+
+	if(strlen(temp_Result) == 1)
+	{
+		//添加校验值
+		for(i = 0; i < 2; i++)
+		{
+			temp_Heart_Buffer[i] = temp04[i];
+		}
+		temp_Heart_Buffer[2] = temp_Result[0];
+		
+		
+		strcat(Heart_Buffer,temp_Heart_Buffer);
+		Clear_buffer(temp_Result,3);
+	  Clear_buffer(temp_Heart_Buffer,LENGTH_HEART);
+	}
+	if(strlen(temp_Result) == 2)
+	{
+		//添加校验值
+		temp_Heart_Buffer[0] = temp03[0];
+		temp_Heart_Buffer[1] = temp_Result[0];
+		temp_Heart_Buffer[2] = temp_Result[1];
+		
+		strcat(Heart_Buffer,temp_Heart_Buffer);
+		Clear_buffer(temp_Result,3);
+	  Clear_buffer(temp_Heart_Buffer,LENGTH_HEART);
+	}
+	if(strlen(temp_Result) == 3)
+	{
+			//添加校验值
+		for(i = 0; i < strlen(temp_Result); i++)
+		{
+			temp_Heart_Buffer[i] = temp_Result[i];
+		}
+		strcat(Heart_Buffer,temp_Heart_Buffer);
+		Clear_buffer(temp_Result,3);
+	  Clear_buffer(temp_Heart_Buffer,LENGTH_HEART);
+	}	
+	
+	//添加,分隔符
+	for(i = 0; i < strlen(temp01); i++)
+	{
+		temp_Heart_Buffer[i] = temp01[i];
+	}
+	strcat(Heart_Buffer,temp_Heart_Buffer);
+	Clear_buffer(temp_Heart_Buffer,LENGTH_HEART);
+	
+	
+	//添加结束符  #
+	for(i = 0; i < strlen(temp02); i++)
+	{
+		temp_Heart_Buffer[i] = temp02[i];
+	}
+	strcat(Heart_Buffer,temp_Heart_Buffer);
+	Clear_buffer(temp_Heart_Buffer,LENGTH_HEART);
+
+
+}
+
+//发送心跳包给服务器
+u8 Send_Heart_Data(void)
+{
+	u8 temp = 0xAA;
+	Get_Heart_Data();
+	temp = Send_Data_To_Server(Heart_Buffer);
+	//发送成功
+	if(temp == 0x00)
+	{
+		Flag_ACK_Resend = 0x02;
+		Flag_ACK_Echo = 0x02;
+		//开启等待服务器回文的超时机制
+		Flag_Wait_Echo = 0xAA;
+		return 0;
+	}
+	//发送失败
+	if(temp == 0x01)
+	{
+		return 1;
+	}
+}
+
+u8 Send_Heart_Data_Normal(void)
+{
+	u8 temp = 0;
+	u8 temp_result = 0xAA;
+	u8 count = 5;	//执行count次，还不成功的话，就重启GPRS
+	while(count != 0)
+	{
+		count -= 1;
+		Clear_Usart3();
+		temp_result = Send_Heart_Data();
+		if(temp_result == 0x01)
+		{
+			//发送数据失败
+			Clear_Usart3();
+			for(temp = 0; temp < 30; temp++)
+			{
+				delay_ms(1000);
+			}
+		}
+		if(temp_result == 0x00)
+		{
+			Clear_Usart3();
+			return 0;
+		}
+	}
+	
+	Clear_Usart3();
+	return 1;
+
+}
+
+u8 Send_Heart_Data_GPRS(void)
+{
+	u8 temp_GPRS = 5;
+	u8 temp = 0xAA;
+	while(temp_GPRS != 0)
+	{
+		temp_GPRS -= 1;
+		temp = Send_Heart_Data_Normal();
+		if(temp == 0x01)
+		{
+			SIM800_GPRS_Restart();
+
+		}
+		if(temp == 0x00)
+		{
+			return 0;
+		}
+	
+	}
+
+	return 1;
+
+}
+
+u8 Send_Heart_Data_Powerkey(void)
+{
+	u8 temp_Powerkey = 5;
+	u8 temp = 0xAA;
+	while(temp_Powerkey != 0)
+	{
+		temp_Powerkey -= 1;
+		temp = Send_Heart_Data_GPRS();
+		if(temp == 0x01)
+		{
+			SIM800_Powerkey_Restart();
+		}
+		if(temp == 0x00)
+		{
+			return 0;
+		}
+	
+	}
+
+	return 1;
+
+}
+
+u8 Send_Heart_Data_To_Server(void)
+{
+	u8 temp_Power = 5;
+	u8 temp = 0xAA;
+	current_cmd = CMD_HB;	
+	while(temp_Power != 0)
+	{
+		temp_Power -= 1;
+		temp = Send_Heart_Data_Powerkey();
+		if(temp == 0x01)
+		{
+			SIM800_Power_Restart();
+		}
+		
+		if(temp == 0x00)
+		{
+			return 0;
+		}	
+	}
+	
+	current_cmd = CMD_NONE;	
+	return 1;
+
+}
+
+void Get_Resend_Data(void)
+{
+	char temp_Resend_Buffer[LENGTH_RESEND] = {0}; 
+	char temp_Result[3] = {0}; 
+	u8 Result_Validation = 0;
+	u8 i = 0;
+	char temp00[] = "TRVAP98,009,000,";
+	char temp01[] = ",";
+	char temp02[] = "#";
+	char temp03[] = "0";
+	char temp04[] = "00";
+	
+
+	//清零Resend_Buffer
+	for(i = 0; i < LENGTH_RESEND; i++)
+	{
+		Resend_Buffer[i] = 0;
+	}
+	
+	//添加TRVAP98,FF,000,
+	
+	for(i = 0; i < strlen(temp00); i++)
+	{
+		temp_Resend_Buffer[i] = temp00[i];
+	}
+	strcat(Resend_Buffer,temp_Resend_Buffer);
+	Clear_buffer(temp_Resend_Buffer,LENGTH_RESEND);
+	
+	//添加校验和
+	Result_Validation = Check_Xor_Sum(Resend_Buffer, strlen(Resend_Buffer));
+	
+	//校验值转化为字符串
+  sprintf(temp_Result,"%d",Result_Validation);
+	
+	//添加校验值
+	//判断校验值是否是三个字符
+	//校验值是三个字符，直接拼接
+
+	if(strlen(temp_Result) == 1)
+	{
+		//添加校验值
+		for(i = 0; i < 2; i++)
+		{
+			temp_Resend_Buffer[i] = temp04[i];
+		}
+		temp_Resend_Buffer[2] = temp_Result[0];
+		
+		strcat(Resend_Buffer,temp_Resend_Buffer);
+		Clear_buffer(temp_Result,3);
+		Clear_buffer(temp_Resend_Buffer,LENGTH_RESEND);
+	}
+	if(strlen(temp_Result) == 2)
+	{
+		//添加校验值
+		temp_Resend_Buffer[0] = temp03[0];
+		temp_Resend_Buffer[1] = temp_Result[0];
+		temp_Resend_Buffer[2] = temp_Result[1];
+		
+		strcat(Resend_Buffer,temp_Resend_Buffer);
+		Clear_buffer(temp_Result,3);
+		Clear_buffer(temp_Resend_Buffer,LENGTH_RESEND);
+	}
+	if(strlen(temp_Result) == 3)
+	{
+			//添加校验值
+		for(i = 0; i < strlen(temp_Result); i++)
+		{
+			temp_Resend_Buffer[i] = temp_Result[i];
+		}
+		strcat(Resend_Buffer,temp_Resend_Buffer);
+		Clear_buffer(temp_Result,3);
+		Clear_buffer(temp_Resend_Buffer,LENGTH_RESEND);
+	}	
+	
+	//添加,分隔符
+	for(i = 0; i < strlen(temp01); i++)
+	{
+		temp_Resend_Buffer[i] = temp01[i];
+	}
+	strcat(Resend_Buffer,temp_Resend_Buffer);
+	Clear_buffer(temp_Resend_Buffer,LENGTH_RESEND);
+	
+	
+	//添加结束符  #
+	for(i = 0; i < strlen(temp02); i++)
+	{
+		temp_Resend_Buffer[i] = temp02[i];
+	}
+	strcat(Resend_Buffer,temp_Resend_Buffer);
+	Clear_buffer(temp_Resend_Buffer,LENGTH_RESEND);
+
+
+}
 
 
 
+//收到的消息校验错误，要求服务器重新发送
+u8 Send_Resend_Data(void)
+{
+	u8 temp = 0xAA;
+	Get_Resend_Data();
+	temp = Send_Data_To_Server(Resend_Buffer);
+	//发送成功
+	if(temp == 0x00)
+	{
+		Flag_ACK_Resend = 0x03;
+		Flag_ACK_Echo = 0x03;
+		//开启等待服务器回文的超时机制
+		Flag_Wait_Echo = 0xAA;
+		return 0;
+	}
+	//发送失败
+	if(temp == 0x01)
+	{
+		return 1;
+	}
+}
+
+u8 Send_Resend_Data_Normal(void)
+{
+	u8 temp = 0;
+	u8 temp_result = 0xAA;
+	u8 count = 5;	//执行count次，还不成功的话，就重启GPRS
+	while(count != 0)
+	{
+		count -= 1;
+		Clear_Usart3();
+		temp_result = Send_Resend_Data();
+		if(temp_result == 0x01)
+		{
+			//发送数据失败
+			Clear_Usart3();
+			for(temp = 0; temp < 30; temp++)
+			{
+				delay_ms(1000);
+			}
+		}
+		if(temp_result == 0x00)
+		{
+			Clear_Usart3();
+			return 0;
+		}
+	}
+	
+
+	Clear_Usart3();
+	return 1;
+
+}
+
+u8 Send_Resend_Data_GPRS(void)
+{
+	u8 temp_GPRS = 5;
+	u8 temp = 0xAA;
+	while(temp_GPRS != 0)
+	{
+		temp_GPRS -= 1;
+		temp = Send_Resend_Data_Normal();
+		if(temp == 0x01)
+		{
+			SIM800_GPRS_Restart();
+
+		}
+		if(temp == 0x00)
+		{
+			return 0;
+		}
+	
+	}
+
+	return 1;
+
+}
+
+u8 Send_Resend_Data_Powerkey(void)
+{
+	u8 temp_Powerkey = 5;
+	u8 temp = 0xAA;
+	while(temp_Powerkey != 0)
+	{
+		temp_Powerkey -= 1;
+		temp = Send_Resend_Data_GPRS();
+		if(temp == 0x01)
+		{
+			SIM800_Powerkey_Restart();
+		}
+		if(temp == 0x00)
+		{
+			return 0;
+		}
+	
+	}
+
+	return 1;
+
+}
+
+u8 Send_Resend_Data_To_Server(void)
+{
+	u8 temp_Power = 5;
+	u8 temp = 0xAA;
+	while(temp_Power != 0)
+	{
+		temp_Power -= 1;
+		temp = Send_Resend_Data_Powerkey();
+		if(temp == 0x01)
+		{
+			SIM800_Power_Restart();
+		}
+		
+		if(temp == 0x00)
+		{
+			return 0;
+		}	
+	}
+		
+	return 1;
+
+}
+
+
+
+void Get_Enable_Data(void)
+{
+	char temp_Enable_Buffer[LENGTH_ENABLE] = {0}; 
+	char temp_Result[3] = {0}; 
+	u8 Result_Validation = 0;
+	u8 i = 0;
+	char temp00[] = "TRVAP03,019,";
+	char temp01[] = ",";
+	char temp02[] = "#";
+	char temp03[] = "0";
+	char temp04[] = "00";
+	char temp05[] = "0000,";
+	char temp06[] = "11223344,";
+	
+
+	//清零Resend_Buffer
+	for(i = 0; i < LENGTH_ENABLE; i++)
+	{
+		Enbale_Buffer[i] = 0;
+	}
+	
+	//添加TRVAP01,FF,000,
+	
+	for(i = 0; i < strlen(temp00); i++)
+	{
+		temp_Enable_Buffer[i] = temp00[i];
+	}
+	strcat(Enbale_Buffer,temp_Enable_Buffer);
+	Clear_buffer(temp_Enable_Buffer,LENGTH_ENABLE);
+	
+		//添加设备状态，暂时固定为0000,
+	//temp05
+	for(i = 0; i < strlen(temp05); i++)
+	{
+		temp_Enable_Buffer[i] = temp05[i];
+	}
+	
+	strcat(Enbale_Buffer,temp_Enable_Buffer);
+	Clear_buffer(temp_Enable_Buffer,LENGTH_ENABLE);
+	
+	//添加设备运行时间，暂时固定为1234,
+	//temp06
+	for(i = 0; i < strlen(temp06); i++)
+	{
+		temp_Enable_Buffer[i] = temp06[i];
+	}
+	
+	strcat(Enbale_Buffer,temp_Enable_Buffer);
+	Clear_buffer(temp_Enable_Buffer,LENGTH_ENABLE);
+	
+	//添加校验和
+	Result_Validation = Check_Xor_Sum(Enbale_Buffer, strlen(Enbale_Buffer));
+	
+	//校验值转化为字符串
+  sprintf(temp_Result,"%d",Result_Validation);
+	
+	//添加校验值
+	//判断校验值是否是三个字符
+	//校验值是三个字符，直接拼接
+
+	if(strlen(temp_Result) == 1)
+	{
+		//添加校验值
+		for(i = 0; i < 2; i++)
+		{
+			temp_Enable_Buffer[i] = temp04[i];
+		}
+		temp_Enable_Buffer[2] = temp_Result[0];
+		
+		
+		strcat(Enbale_Buffer,temp_Enable_Buffer);
+		Clear_buffer(temp_Result,3);
+	  Clear_buffer(temp_Enable_Buffer,LENGTH_ENABLE);
+	}
+	if(strlen(temp_Result) == 2)
+	{
+		//添加校验值
+		temp_Enable_Buffer[0] = temp03[0];
+		temp_Enable_Buffer[1] = temp_Result[0];
+		temp_Enable_Buffer[2] = temp_Result[1];
+		
+		strcat(Enbale_Buffer,temp_Enable_Buffer);
+		Clear_buffer(temp_Result,3);
+	  Clear_buffer(temp_Enable_Buffer,LENGTH_ENABLE);
+	}
+	if(strlen(temp_Result) == 3)
+	{
+			//添加校验值
+		for(i = 0; i < strlen(temp_Result); i++)
+		{
+			temp_Enable_Buffer[i] = temp_Result[i];
+		}
+		strcat(Enbale_Buffer,temp_Enable_Buffer);
+		Clear_buffer(temp_Result,3);
+	  Clear_buffer(temp_Enable_Buffer,LENGTH_ENABLE);
+	}	
+	
+	//添加,分隔符
+		for(i = 0; i < strlen(temp01); i++)
+		{
+			temp_Enable_Buffer[i] = temp01[i];
+		}
+		strcat(Enbale_Buffer,temp_Enable_Buffer);
+		Clear_buffer(temp_Enable_Buffer,LENGTH_ENABLE);
+	
+	
+	//添加结束符  #
+	for(i = 0; i < strlen(temp02); i++)
+	{
+		temp_Enable_Buffer[i] = temp02[i];
+	}
+		strcat(Enbale_Buffer,temp_Enable_Buffer);
+		Clear_buffer(temp_Enable_Buffer,LENGTH_ENABLE);
+
+
+}
+
+
+
+//发送接收业务指令完成回文给服务器
+u8 Send_Enable_Data(void)
+{
+	u8 temp = 0xAA;
+	Get_Enable_Data();
+	temp = Send_Data_To_Server(Enbale_Buffer);
+	//发送成功
+	if(temp == 0x00)
+	{
+		Flag_ACK_Resend = 0x04;
+		Flag_ACK_Echo = 0x04;    //事实上这条消息不需要超时重发
+		//开启等待服务器回文的超时机制
+		Flag_Wait_Echo = 0xAA;
+		return 0;
+	}
+	//发送失败
+	if(temp == 0x01)
+	{
+		return 1;
+	}
+}
+
+u8 Send_Enable_Data_Normal(void)
+{
+	u8 temp = 0;
+	u8 temp_result = 0xAA;
+	u8 count = 5;	//执行count次，还不成功的话，就重启GPRS
+	while(count != 0)
+	{
+		count -= 1;
+		Clear_Usart3();
+		temp_result = Send_Enable_Data();
+		if(temp_result == 0x01)
+		{
+			//发送数据失败
+			Clear_Usart3();
+			for(temp = 0; temp < 30; temp++)
+			{
+				delay_ms(1000);
+			}
+		}
+		if(temp_result == 0x00)
+		{
+			Clear_Usart3();
+			return 0;
+		}
+	}
+	
+	Clear_Usart3();
+	return 1;
+
+}
+
+u8 Send_Enable_Data_GPRS(void)
+{
+	u8 temp_GPRS = 5;
+	u8 temp = 0xAA;
+	while(temp_GPRS != 0)
+	{
+		temp_GPRS -= 1;
+		temp = Send_Enable_Data_Normal();
+		if(temp == 0x01)
+		{
+			SIM800_GPRS_Restart();
+
+		}
+		if(temp == 0x00)
+		{
+			return 0;
+		}
+	
+	}
+
+	return 1;
+
+}
+
+u8 Send_Enable_Data_Powerkey(void)
+{
+	u8 temp_Powerkey = 5;
+	u8 temp = 0xAA;
+	while(temp_Powerkey != 0)
+	{
+		temp_Powerkey -= 1;
+		temp = Send_Enable_Data_GPRS();
+		if(temp == 0x01)
+		{
+			SIM800_Powerkey_Restart();
+		}
+		if(temp == 0x00)
+		{
+			return 0;
+		}
+	
+	}
+
+	return 1;
+
+}
+
+u8 Send_Enable_Data_To_Server(void)
+{
+	u8 temp_Power = 5;
+	u8 temp = 0xAA;
+	current_cmd = CMD_ENABLE_DEVICE;
+	while(temp_Power != 0)
+	{
+		temp_Power -= 1;
+		temp = Send_Enable_Data_Powerkey();
+		if(temp == 0x01)
+		{
+			SIM800_Power_Restart();
+		}
+		
+		if(temp == 0x00)
+		{
+			current_cmd = CMD_NONE;	    //这条命令发完就完了，不期待任何返回		
+			return 0;
+		}	
+	}
+
+	current_cmd = CMD_NONE;    //这条命令发完就完了，不期待任何返回		
+	return 1;
+
+}
+
+void Get_Device_OK_Data(void)
+{
+	char temp_Device_OK_Buffer[LENGTH_DEVICE_OK] = {0}; 
+	char temp_Result[3] = {0}; 
+	u8 Result_Validation = 0;
+	u8 i = 0;
+	char temp00[] = "TRVAP05,019,";
+	char temp01[] = ",";
+	char temp02[] = "#";
+	char temp03[] = "0";
+	char temp04[] = "00";
+	char temp05[] = "0000,";
+	char temp06[] = "11223344,";
+	
+
+	//清零Resend_Buffer
+	for(i = 0; i < LENGTH_DEVICE_OK; i++)
+	{
+		Device_OK_Buffer[i] = 0;
+	}
+	
+	//添加TRVAP05,FF,
+	
+	for(i = 0; i < strlen(temp00); i++)
+	{
+		temp_Device_OK_Buffer[i] = temp00[i];
+	}
+	strcat(Device_OK_Buffer,temp_Device_OK_Buffer);
+	Clear_buffer(temp_Device_OK_Buffer,LENGTH_DEVICE_OK);
+	
+		//添加设备状态，暂时固定为0000,
+	//temp05
+	for(i = 0; i < strlen(temp05); i++)
+	{
+		temp_Device_OK_Buffer[i] = temp05[i];
+	}
+	
+	strcat(Device_OK_Buffer,temp_Device_OK_Buffer);
+	Clear_buffer(temp_Device_OK_Buffer,LENGTH_DEVICE_OK);
+	
+	//添加设备运行时间，暂时固定为1234,
+	//temp06
+	for(i = 0; i < strlen(temp06); i++)
+	{
+		temp_Device_OK_Buffer[i] = temp06[i];
+	}
+	
+	strcat(Device_OK_Buffer,temp_Device_OK_Buffer);
+	Clear_buffer(temp_Device_OK_Buffer,LENGTH_DEVICE_OK);
+	
+	//添加校验和
+	Result_Validation = Check_Xor_Sum(Device_OK_Buffer, strlen(Device_OK_Buffer));
+	
+	//校验值转化为字符串
+  sprintf(temp_Result,"%d",Result_Validation);
+	
+	//添加校验值
+	//判断校验值是否是三个字符
+	//校验值是三个字符，直接拼接
+
+	if(strlen(temp_Result) == 1)
+	{
+		//添加校验值
+		for(i = 0; i < 2; i++)
+		{
+			temp_Device_OK_Buffer[i] = temp04[i];
+		}
+		temp_Device_OK_Buffer[2] = temp_Result[0];
+		
+		
+		strcat(Device_OK_Buffer,temp_Device_OK_Buffer);
+		Clear_buffer(temp_Result,3);
+	  Clear_buffer(temp_Device_OK_Buffer,LENGTH_DEVICE_OK);
+	}
+	if(strlen(temp_Result) == 2)
+	{
+		//添加校验值
+		temp_Device_OK_Buffer[0] = temp03[0];
+		temp_Device_OK_Buffer[1] = temp_Result[0];
+		temp_Device_OK_Buffer[2] = temp_Result[1];
+		
+		strcat(Device_OK_Buffer,temp_Device_OK_Buffer);
+		Clear_buffer(temp_Result,3);
+	  Clear_buffer(temp_Device_OK_Buffer,LENGTH_DEVICE_OK);
+	}
+	if(strlen(temp_Result) == 3)
+	{
+			//添加校验值
+		for(i = 0; i < strlen(temp_Result); i++)
+		{
+			temp_Device_OK_Buffer[i] = temp_Result[i];
+		}
+		strcat(Device_OK_Buffer,temp_Device_OK_Buffer);
+		Clear_buffer(temp_Result,3);
+	  Clear_buffer(temp_Device_OK_Buffer,LENGTH_DEVICE_OK);
+	}	
+	
+	//添加,分隔符
+	for(i = 0; i < strlen(temp01); i++)
+	{
+		temp_Device_OK_Buffer[i] = temp01[i];
+	}
+		strcat(Device_OK_Buffer,temp_Device_OK_Buffer);
+	  Clear_buffer(temp_Device_OK_Buffer,LENGTH_DEVICE_OK);
+	
+	
+	//添加结束符  #
+	for(i = 0; i < strlen(temp02); i++)
+	{
+		temp_Device_OK_Buffer[i] = temp02[i];
+	}
+		strcat(Device_OK_Buffer,temp_Device_OK_Buffer);
+	  Clear_buffer(temp_Device_OK_Buffer,LENGTH_DEVICE_OK);
+
+
+}
+
+
+
+//发送业务执行完成指令给服务器
+u8 Send_Device_OK_Data(void)
+{
+	u8 temp = 0xAA;
+	Get_Device_OK_Data();
+	temp = Send_Data_To_Server(Device_OK_Buffer);
+	//发送成功
+	if(temp == 0x00)
+	{
+		Flag_ACK_Resend = 0x05;
+		Flag_ACK_Echo = 0x05;
+		//开启等待服务器回文的超时机制
+		Flag_Wait_Echo = 0xAA;
+		return 0;
+	}
+	//发送失败
+	if(temp == 0x01)
+	{
+		return 1;
+	}
+}
+
+u8 Send_Device_OK_Data_Normal(void)
+{
+	u8 temp = 0;
+	u8 temp_result = 0xAA;
+	u8 count = 5;	//执行count次，还不成功的话，就重启GPRS
+	while(count != 0)
+	{
+		count -= 1;
+		Clear_Usart3();
+		temp_result = Send_Device_OK_Data();
+		if(temp_result == 0x01)
+		{
+			//发送数据失败
+			Clear_Usart3();
+			for(temp = 0; temp < 30; temp++)
+			{
+				delay_ms(1000);
+			}
+		}
+		if(temp_result == 0x00)
+		{
+			Clear_Usart3();
+			return 0;
+		}
+	}
+
+	Clear_Usart3();
+	return 1;
+
+}
+
+u8 Send_Device_OK_Data_GPRS(void)
+{
+	u8 temp_GPRS = 5;
+	u8 temp = 0xAA;
+	while(temp_GPRS != 0)
+	{
+		temp_GPRS -= 1;
+		temp = Send_Device_OK_Data_Normal();
+		if(temp == 0x01)
+		{
+			SIM800_GPRS_Restart();
+
+		}
+		if(temp == 0x00)
+		{
+			return 0;
+		}
+	
+	}
+
+	return 1;
+
+}
+
+u8 Send_Device_OK_Data_Powerkey(void)
+{
+	u8 temp_Powerkey = 5;
+	u8 temp = 0xAA;
+	while(temp_Powerkey != 0)
+	{
+		temp_Powerkey -= 1;
+		temp = Send_Device_OK_Data_GPRS();
+		if(temp == 0x01)
+		{
+			SIM800_Powerkey_Restart();
+		}
+		if(temp == 0x00)
+		{
+			return 0;
+		}
+	
+	}
+
+	return 1;
+
+}
+
+u8 Send_Device_OK_Data_To_Server(void)
+{
+	u8 temp_Power = 5;
+	u8 temp = 0xAA;
+	current_cmd = CMD_CLOSE_DEVICE;
+	while(temp_Power != 0)
+	{
+		temp_Power -= 1;
+		temp = Send_Device_OK_Data_Powerkey();
+		if(temp == 0x01)
+		{
+			SIM800_Power_Restart();
+		}
+		
+		if(temp == 0x00)
+		{
+			return 0;
+		}	
+	}
+
+	current_cmd = CMD_NONE;	
+	return 1;
+
+}
+
+
+void Enable_Device(u8 mode)
+{
+	;
+
+}
 
 void Clear_buffer(char* buffer,u16 length)
 {

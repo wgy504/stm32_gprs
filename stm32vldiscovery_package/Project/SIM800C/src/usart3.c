@@ -40,10 +40,7 @@ void USART3_IRQHandler(void)
 			{
 				USART3_RX_STA|=1<<15;				//强制标记接收完成
 			} 
-		}
-		
-
-			
+		}		
 	}  				 											 
 }   
 
@@ -97,7 +94,8 @@ void usart3_init(u32 bound)
 	NVIC_Init(&NVIC_InitStructure);	//根据指定的参数初始化VIC寄存器
 	
 	
-	TIM7_Int_Init(99,2399);		//10ms中断
+	//TIM7_Int_Init(99,2399);		//10ms中断
+	TIM7_Int_Init(999,2399);
 	USART3_RX_STA=0;		    	//清零
 	TIM_Cmd(TIM7,DISABLE);		//关闭定时器7
 
@@ -110,9 +108,11 @@ void u3_printf(char* fmt,...)
 	u16 i,j; 
 	va_list ap; 
 	va_start(ap,fmt);
+	memset(USART3_TX_BUF, 0, USART3_MAX_SEND_LEN);	
 	vsprintf((char*)USART3_TX_BUF,fmt,ap);
 	va_end(ap);
 	i=strlen((const char*)USART3_TX_BUF);		//此次发送数据的长度
+	printf("S: %s", USART3_TX_BUF);
 	for(j=0;j<i;j++)							//循环发送数据
 	{
 	  while(USART_GetFlagStatus(USART3,USART_FLAG_TC)==RESET); //循环发送,直到发送完毕   
