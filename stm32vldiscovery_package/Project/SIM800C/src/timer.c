@@ -5,11 +5,6 @@
 #include "string.h"  
 #include "stdlib.h"  
 
-
-/* 这个宏仅用于调试阶段排错 */
-#define BSP_Printf		printf
-//#define BSP_Printf(...)
-
 //////////////////////////////////////////////
 
 u8 Flag_Time_Out_Reconnec_Normal = 0;           //传输正常时重新链接服务器的超时生效时置位该变量
@@ -18,10 +13,10 @@ u8 Flag_Auth_Infor = 0;  												//收到身份认证命令时置位该变量
 
 u8 Flag_Reported_Data = 0;   										//收到上报数据命令时置位该变量（现阶段是上报TDS值和温度值）
 
-u8 Flag_Comm_OK = 0;                            //整个通信过程顺利结束时置位该变量
+u8 Flag_Comm_OK = 0;                            //设备已经与服务器建立连接，且收到了login回文
+u8 Flag_Need_Reset = 0;
 
-
-
+extern u8 Total_Wait_Echo;
 //////////////////////////////////
 u32 Count_Wait_Echo = 0;         //等待服务器回文的计数值，一个单位代表50ms
 u8  Flag_Wait_Echo = 0;          //需要等待服务器回文时，置位这个变量
@@ -56,6 +51,9 @@ u8 	Flag_Receive_Resend = 0; 										 //接收到重发命令时置位该变量
 u8 	Flag_Receive_Enable = 0; 										 //接收到开启设备命令时置位该变量
 u8 	Flag_Receive_Device_OK = 0; 								 //接收到设备运行结束回文时置位该变量
 u8 	Flag_ACK_Resend = 0xFF;                      //设备端程序利用该变量来判定要重发的是那条命令
+
+u8 Flag_Received_SIM800C_CLOSED = 0;
+u8 Flag_Received_SIM800C_DEACT = 0;
 /*
 	50ms的定时扫描，目的有两个：
 	一是及时获取服务器的下发命令（这里的下发命令包含对设备的回文信息和主动下发的业务指令）
@@ -139,6 +137,11 @@ void TIM6_DAC_IRQHandler(void)
 			//清零串口3的接收标志变量
 			
 			BSP_Printf("USART3_RX_BUF_SIM800C:%s\r\n",USART3_RX_BUF);
+
+			if(strstr((const char*)USART3_RX_BUF,"CLOSED")!=NULL)
+				Flag_Received_SIM800C_CLOSED = 0xAA;
+			if(strstr((const char*)USART3_RX_BUF,"+PDP: DEACT")!=NULL)
+				Flag_Received_SIM800C_DEACT = 0xAA;
 			//Clear_Usart3();
 
 		}
@@ -151,7 +154,8 @@ void TIM6_DAC_IRQHandler(void)
 			//收到回文，就清零相关标识符
 			Flag_Wait_Echo = 0;
 			Count_Wait_Echo = 0;
-			
+			Total_Wait_Echo = 0;
+				
 			//调用异或和函数来校验回文	
 			length = strlen((const char *)(USART3_RX_BUF));
 			//校验数据

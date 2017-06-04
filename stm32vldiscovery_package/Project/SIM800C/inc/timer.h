@@ -28,7 +28,7 @@ extern u8 Flag_Resend; 														  //接收到重发命令时置位该变量
 extern u8 Flag_Check_error;                         //对接收到的信息进行校验，如果校验不通过就置位该变量
 extern u8 Flag_ACK_Resend;              					  //设备端程序利用该变量来判定要重发的是那条命令
 extern u8 Flag_Comm_OK;                             //整个通信过程顺利结束时置位该变量
-
+extern u8 Flag_Need_Reset;
 
 ////////////////////////////////
 extern u32 Count_Wait_Echo;         //等待服务器回文的计数值，一个单位代表50ms
@@ -62,6 +62,10 @@ extern u8  Flag_Receive_Resend; 		//接收到重发命令时置位该变量
 extern u8  Flag_Receive_Enable; 		//接收到开启设备命令时置位该变量
 
 extern u8  Flag_Receive_Device_OK;  //接收到设备运行结束回文时置位该变量
+
+extern u8 Flag_Received_SIM800C_CLOSED;
+extern u8 Flag_Received_SIM800C_DEACT;
+
 void TIM6_Int_Init(u16 arr,u16 psc);
 void TIM7_Int_Init(u16 arr,u16 psc);
 

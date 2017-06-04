@@ -7,11 +7,6 @@
 #include "delay.h"
 #include <stdlib.h>
 
-/* 这个宏仅用于调试阶段排错 */
-#define BSP_Printf		printf
-//#define BSP_Printf(...)
-
-
 
 extern u8 result_Send_Data;
 extern u8 count_Send_Data;
@@ -55,16 +50,20 @@ char Device_OK_Buffer[LENGTH_DEVICE_OK] = {0};
 //str:期待的应答结果
 //返回值:0,没有得到期待的应答结果
 //其他,期待应答结果的位置(str的位置)
-u8* SIM800_Check_Cmd(u8 *str)
+u8 SIM800_Check_Cmd(u8 *str)
 {
-	char *strx = 0;
+	u8 ret = CMD_ACK_NONE;
 	if(USART3_RX_STA&0X8000)		//接收到一次数据了
 	{ 
+		ret = CMD_ACK_NOK;
 		USART3_RX_BUF[USART3_RX_STA&0X7FFF] = 0;//添加结束符
 		BSP_Printf("recv: %s\r\n", USART3_RX_BUF);
-		strx = strstr((const char*)USART3_RX_BUF,(const char*)str);
+		if(strstr((const char*)USART3_RX_BUF,(const char*)str)!=NULL)   //必须首先进行是否是正确回文判断
+			ret = CMD_ACK_OK;
+		else if((strstr((const char*)USART3_RX_BUF,"CLOSED")!=NULL) || (strstr((const char*)USART3_RX_BUF,"+PDP: DEACT")!=NULL))
+			ret = CMD_ACK_DISCONN;
 	} 
-	return (u8*)strx;
+	return ret;
 }
 
 //SIM800发送命令
@@ -75,7 +74,7 @@ u8* SIM800_Check_Cmd(u8 *str)
 //       1,发送失败
 u8 SIM800_Send_Cmd(u8 *cmd,u8 *ack,u16 waittime)
 {
-	u8 res = 0; 
+	u8 res = CMD_ACK_NONE; 
 	Clear_Usart3();	
 	if((u32)cmd <= 0XFF)
 	{
@@ -89,30 +88,32 @@ u8 SIM800_Send_Cmd(u8 *cmd,u8 *ack,u16 waittime)
 
 	if(ack&&waittime)		//需要等待应答
 	{
-		while(--waittime)	//等待倒计时
+		while(waittime!=0)	//等待倒计时
 		{ 
-			delay_ms(10);	
+			delay_ms(10);				
 			if(USART3_RX_STA&0X8000)//接收到期待的应答结果
 			{
 				//得到了有效的回文信息，
-				if(SIM800_Check_Cmd(ack))
+				res = SIM800_Check_Cmd(ack);
+				if((res == CMD_ACK_OK) || (res == CMD_ACK_DISCONN))   //收到正常的回文，或者断线都不需要再重试了
 				{
 					//后面的函数可能要处理得到的回文，所以这里不能调用函数Clear_Usart3
 					break;
 				} 
 				//没有得到有效的回文信息，清零串口3，继续下次的接收
-				else
+				else  //res == CMD_ACK_NOK
 				{
 					Clear_Usart3();
 				}
 			} 
+			waittime--;
 		}
 		
 		if(waittime == 0)
 		{
-			//AT指令已经发出，只是在等待时间内，USART3_RX_STA没有置位，这时可能会有数据，所以要清零
+			//AT指令已经发出，只是在等待时间内，USART3_RX_STA没有置位或者得到的数据不包含ack
+			//返回的是CMD_ACK_NONE 或者CMD_ACK_NOK
 			Clear_Usart3();
-			res = 1; 
 		}
 	}
 	
@@ -128,127 +129,134 @@ u8 SIM800_Send_Cmd(u8 *cmd,u8 *ack,u16 waittime)
 
 u8 Check_Module(void)
 {
-	u8 count = 0;
-	while(SIM800_Send_Cmd("AT","OK",100))//检测是否应答AT指令 
-	{ 
-		if(count < COUNT_AT)
+	u8 count = COUNT_AT;
+	u8 ret = CMD_ACK_NONE;
+	while(count != 0)
+	{
+		ret = SIM800_Send_Cmd("AT","OK",100);
+		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))   //只有这两种情况才有重复的意义
 		{
-			count += 1;
-			delay_ms(2000);			
+			delay_ms(2000);
 		}
-		else
-		{
-			//AT指令已经尝试了COUNT_AT次，仍然失败
-			Flag_AT_Unusual = 0xAA;
-			return 1;		
-		}
+		else if((ret == CMD_ACK_OK) || (ret == CMD_ACK_DISCONN))  //在正常AT 命令里基本上不可能返回"CLOSED" 吧 ，仅放在这里
+			break;
+		
+		count--;
 	}
-
-	//AT指令已经完成，并且不需要对返回值进行处理，所以直接清零
-	Clear_Usart3();
-	return 0;	
+	
+	Clear_Usart3();	
+	return ret;
+	
 }
 
 //关闭回显
 u8 Disable_Echo(void)
 {
-	u8 count = 0;
-	while(SIM800_Send_Cmd("ATE0","OK",200))//检测是否应答AT指令 
+	u8 count = COUNT_AT;
+	u8 ret = CMD_ACK_NONE;
+	while(count != 0)
 	{
-		if(count < COUNT_AT)
+		ret = SIM800_Send_Cmd("ATE0","OK",200);
+		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
 		{
-			count += 1;
-			delay_ms(2000);			
+			delay_ms(2000);
 		}
-		else
-		{
-			Flag_AT_Unusual = 0xAA;
-			return 1;		
-		}
+		else if((ret == CMD_ACK_OK) || (ret == CMD_ACK_DISCONN))
+			break;
+		
+		count--;
 	}
-
-	//AT指令已经完成，并且不需要对返回值进行处理，所以直接清零
-	Clear_Usart3();
-	return 0;	
+	
+	Clear_Usart3();	
+	return ret;
+	
 }
 
 //查看SIM是否正确检测到
 u8 Check_SIM_Card(void)
 {
-	u8 count = 0;
-	delay_ms(2000);	
-	while(SIM800_Send_Cmd("AT+CPIN?","OK",200))//检测是否应答AT指令 
+	u8 count = COUNT_AT;
+	u8 ret = CMD_ACK_NONE;
+	while(count != 0)
 	{
-		if(count < COUNT_AT)
+		ret = SIM800_Send_Cmd("AT+CPIN?","OK",200);
+		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
 		{
-			count += 1;
-			delay_ms(2000);			
+			delay_ms(2000);
 		}
-		else
-		{
-			Flag_AT_Unusual = 0xAA;
-			return 1;		
-		}
+		else if((ret == CMD_ACK_OK) || (ret == CMD_ACK_DISCONN))
+			break;
+		
+		count--;
 	}
-	delay_ms(2000);	
-	count = 0;
-	while(SIM800_Send_Cmd("AT+COPS?","CHINA",500))//检测是否应答AT指令 
-	{
-		if(count < COUNT_AT)
-		{
-			count += 1;
-			delay_ms(2000);			
-		}
-		else
-		{
-			Flag_AT_Unusual = 0xAA;
-			return 1;		
-		}
-	}
-
-	//AT指令已经完成，并且不需要对返回值进行处理，所以直接清零
-	Clear_Usart3();
-	return 0;	
+	
+	Clear_Usart3();	
+	return ret;
 }
+
+u8 Check_OPS(void)
+{
+	u8 count = COUNT_AT;
+	u8 ret = CMD_ACK_NONE;
+	while(count != 0)
+	{
+		ret = SIM800_Send_Cmd("AT+COPS?","CHINA",500);
+		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
+		{
+			delay_ms(2000);
+		}
+		else if((ret == CMD_ACK_OK) || (ret == CMD_ACK_DISCONN))
+			break;
+		
+		count--;
+	}
+	
+	Clear_Usart3();	
+	return ret;
+}
+
 
 //查看天线质量
 u8 Check_CSQ(void)
 {
-	u8 count = 0;
+	u8 count = COUNT_AT;
+	u8 ret = CMD_ACK_NONE;
 	u8 *p1 = NULL; 
 	u8 *p2 = NULL;
 	u8 p[50] = {0}; 
   	u8 signal=0;
 
-while(signal < 10)
-{
-	delay_ms(2000);
-	while(SIM800_Send_Cmd("AT+CSQ","+CSQ:",200))//检测是否应答AT指令 
+	while(signal < 10)
 	{
-		if(count < COUNT_AT)
+		delay_ms(2000);
+		while(count != 0)
 		{
-			count += 1;
-			delay_ms(2000);			
-		}
-		else
+			ret = SIM800_Send_Cmd("AT+CSQ","+CSQ:",200);
+			if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
+			{
+				delay_ms(2000);
+			}
+			else if((ret == CMD_ACK_OK) || (ret == CMD_ACK_DISCONN))
+				break;
+			
+			count--;
+		}		
+		
+		if(ret == CMD_ACK_OK)
 		{
-			Flag_AT_Unusual = 0xAA;
-			return 1;		
+			//AT指令已经指令完成，下面对返回值进行处理
+			p1=(u8*)strstr((const char*)(USART3_RX_BUF),":");
+			p2=(u8*)strstr((const char*)(p1),",");
+			p2[0]=0;//加入结束符
+			signal = atoi((const char *)(p1+2));
+			//sprintf((char*)p,"信号质量:%s",p1+2);
+			sprintf((char*)p,"信号质量:%d",signal);
+			BSP_Printf("%s\r\n",p);
 		}
-	}
-
-	//AT指令已经指令完成，下面对返回值进行处理
-	p1=(u8*)strstr((const char*)(USART3_RX_BUF),":");
-	p2=(u8*)strstr((const char*)(p1),",");
-	p2[0]=0;//加入结束符
-	signal = atoi((const char *)(p1+2));
-	//sprintf((char*)p,"信号质量:%s",p1+2);
-	sprintf((char*)p,"信号质量:%d",signal);
-	BSP_Printf("%s\r\n",p);
-	//AT指令的回文已经处理完成，清零
-	Clear_Usart3();
-}	
-	return 0;
+		//AT指令的回文已经处理完成，清零
+		Clear_Usart3();
+	}	
+	return ret;
 }
 
 //获取SIM卡的ICCID
@@ -264,254 +272,222 @@ u8 Get_ICCID(void)
 {
 	u8 index = 0;
 	u8 *p_temp = NULL;
-	u8 count = 0;
-
-	while(SIM800_Send_Cmd("AT+CCID","OK",200))//检测是否应答AT指令 
-	{
-		if(count < COUNT_AT)
-		{
-			count += 1;
-			delay_ms(2000);			
-		}
-		else
-		{
-			Flag_AT_Unusual = 0xAA;
-			return 1;		
-		}
-	}
+	u8 count = COUNT_AT;
+	u8 ret = CMD_ACK_NONE;
 	
-	//AT指令已经指令完成，下面对返回值进行处理
-	//BSP_Printf("CCID:%s\r\n",USART3_RX_BUF);
-
-	p_temp = USART3_RX_BUF;
-	//提取ICCID信息到全局变量ICCID_BUF
-	for(index = 0;index < LENGTH_ICCID_BUF;index++)
+	while(count != 0)
 	{
-		ICCID_BUF[index] = *(p_temp+OFFSET_ICCID+index);
+		ret = SIM800_Send_Cmd("AT+CCID","OK",200);
+		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
+		{
+			delay_ms(2000);
+		}
+		else if((ret == CMD_ACK_OK) || (ret == CMD_ACK_DISCONN))
+			break;
+		
+		count--;
 	}
-	//BSP_Printf("ICCID_BUF:%s\r\n",ICCID_BUF);
+
+	if(ret == CMD_ACK_OK)	
+	{
+		//AT指令已经指令完成，下面对返回值进行处理
+		//BSP_Printf("CCID:%s\r\n",USART3_RX_BUF);
+
+		p_temp = USART3_RX_BUF;
+		//提取ICCID信息到全局变量ICCID_BUF
+		for(index = 0;index < LENGTH_ICCID_BUF;index++)
+		{
+			ICCID_BUF[index] = *(p_temp+OFFSET_ICCID+index);
+		}
+		//BSP_Printf("ICCID_BUF:%s\r\n",ICCID_BUF);
+	}
 	//AT指令的回文已经处理完成，清零
 	Clear_Usart3();
-	return 0;
+	return ret;
 
 }
 
-#if 1
 u8 SIM800_GPRS_ON(void)
 {
-	u8 count = 0;
-	while(SIM800_Send_Cmd("AT+CIPSTART=\"TCP\",\"42.159.117.91\",\"8090\"","CONNECT OK",300))//检测是否应答AT指令 
+	u8 count = COUNT_AT;
+	u8 ret = CMD_ACK_NONE;
+	while(count != 0)
 	{
-		if(count < COUNT_AT)
+		ret = SIM800_Send_Cmd("AT+CIPSTART=\"TCP\",\"42.159.117.91\",\"8090\"","CONNECT OK",300);
+		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
 		{
-			count += 1;
-			delay_ms(2000);			
+			delay_ms(2000);
 		}
-		else
-		{
-			Flag_AT_Unusual = 0xAA;
-			return 1;		
-		}
+		else if((ret == CMD_ACK_OK) || (ret == CMD_ACK_DISCONN))
+			break;
+		
+		count--;
 	}
+	
+	Clear_Usart3();	
+	return ret;
 
-	//AT指令的回文已经处理完成，清零
-	Clear_Usart3();
-	return 0;		
 }
-#endif
-
 
 //关闭GPRS的链接
 u8 SIM800_GPRS_OFF(void)
 {
-	u8 count = 0;
-	while(SIM800_Send_Cmd("AT+CIPCLOSE=1","CLOSE OK",500))//检测是否应答AT指令 
+	u8 count = COUNT_AT;
+	u8 ret = CMD_ACK_NONE;
+	while(count != 0)
 	{
+		ret = SIM800_Send_Cmd("AT+CIPCLOSE=1","CLOSE OK",500);
+		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
+		{
+			delay_ms(2000);
+		}
+		else if((ret == CMD_ACK_OK) || (ret == CMD_ACK_DISCONN))
+			break;
 		
-		if(count < COUNT_AT)
-		{
-			count += 1;
-			delay_ms(2000);			
-		}
-		else
-		{
-			Flag_AT_Unusual = 0xAA;
-			return 1;		
-		}
+		count--;
 	}
-
-		//AT指令已经完成，并且不需要对返回值进行处理，所以直接清零
-	Clear_Usart3();
-  return 0;
-
+	
+	Clear_Usart3();	
+	return ret;
 }
 
 //附着GPRS
 u8 SIM800_GPRS_Adhere(void)
 {
-	u8 count = 0;
-	while(SIM800_Send_Cmd("AT+CGATT=1","OK",300))//检测是否应答AT指令 
+	u8 count = COUNT_AT;
+	u8 ret = CMD_ACK_NONE;
+	while(count != 0)
 	{
-		if(count < COUNT_AT)
+		ret = SIM800_Send_Cmd("AT+CGATT=1","OK",300);
+		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
 		{
-			count += 1;
-			delay_ms(2000);			
+			delay_ms(2000);
 		}
-		else
-		{
-			Flag_AT_Unusual = 0xAA;
-			return 1;		
-		}
+		else if((ret == CMD_ACK_OK) || (ret == CMD_ACK_DISCONN))
+			break;
+		
+		count--;
 	}
-
-		//AT指令已经完成，并且不需要对返回值进行处理，所以直接清零
-	Clear_Usart3();
-  return 0;
+	
+	Clear_Usart3();	
+	return ret;
 }
 
 //设置为GPRS链接模式
 u8 SIM800_GPRS_Set(void)
 {
-	u8 count = 0;
-	while(SIM800_Send_Cmd("AT+CIPCSGP=1,\"CMNET\"","OK",300))//检测是否应答AT指令 
+	u8 count = COUNT_AT;
+	u8 ret = CMD_ACK_NONE;
+	while(count != 0)
 	{
-		if(count < COUNT_AT)
+		ret = SIM800_Send_Cmd("AT+CIPCSGP=1,\"CMNET\"","OK",300);
+		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
 		{
-			count += 1;
-			delay_ms(2000);			
+			delay_ms(2000);
 		}
-		else
-		{
-			Flag_AT_Unusual = 0xAA;
-			return 1;		
-		}
+		else if((ret == CMD_ACK_OK) || (ret == CMD_ACK_DISCONN))
+			break;
+		
+		count--;
 	}
-
-		//AT指令已经完成，并且不需要对返回值进行处理，所以直接清零
-	Clear_Usart3();
-  return 0;
+	
+	Clear_Usart3();	
+	return ret;
 }
 
 //设置接收数据显示IP头(方便判断数据来源)	
 u8 SIM800_GPRS_Dispaly_IP(void)
 {
-	u8 count = 0;
-	while(SIM800_Send_Cmd("AT+CIPHEAD=1","OK",300))//检测是否应答AT指令 
+	u8 count = COUNT_AT;
+	u8 ret = CMD_ACK_NONE;
+	while(count != 0)
 	{
-		if(count < COUNT_AT)
+		ret = SIM800_Send_Cmd("AT+CIPHEAD=1","OK",300);
+		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
 		{
-			count += 1;
-			delay_ms(2000);			
+			delay_ms(2000);
 		}
-		else
-		{
-			Flag_AT_Unusual = 0xAA;
-			return 1;		
-		}
+		else if((ret == CMD_ACK_OK) || (ret == CMD_ACK_DISCONN))
+			break;
+		
+		count--;
 	}
-
-		//AT指令已经完成，并且不需要对返回值进行处理，所以直接清零
-	Clear_Usart3();
-  return 0;
+	
+	Clear_Usart3();	
+	return ret;
 }
 
 //关闭移动场景 
 u8 SIM800_GPRS_CIPSHUT(void)
 {
-	u8 count = 0;
-	while(SIM800_Send_Cmd("AT+CIPSHUT","SHUT OK",300))//检测是否应答AT指令 
+	u8 count = COUNT_AT;
+	u8 ret = CMD_ACK_NONE;
+	while(count != 0)
 	{
-		if(count < COUNT_AT)
+		ret = SIM800_Send_Cmd("AT+CIPSHUT","SHUT OK",300);
+		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
 		{
-			count += 1;
-			delay_ms(2000);			
+			delay_ms(2000);
 		}
-		else
-		{
-			Flag_AT_Unusual = 0xAA;
-			return 1;		
-		}
+		else if((ret == CMD_ACK_OK) || (ret == CMD_ACK_DISCONN))
+			break;
+		
+		count--;
 	}
-
-		//AT指令已经完成，并且不需要对返回值进行处理，所以直接清零
-	Clear_Usart3();
-  return 0;
+	
+	Clear_Usart3();	
+	return ret;
 }
 
 //设置GPRS移动台类别为B,支持包交换和数据交换 
 u8 SIM800_GPRS_CGCLASS(void)
 {
-	u8 count = 0;
-	while(SIM800_Send_Cmd("AT+CGCLASS=\"B\"","OK",300))//检测是否应答AT指令 
+	u8 count = COUNT_AT;
+	u8 ret = CMD_ACK_NONE;
+	while(count != 0)
 	{
-		if(count < COUNT_AT)
+		ret = SIM800_Send_Cmd("AT+CGCLASS=\"B\"","OK",300);
+		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
 		{
-			count += 1;
-			delay_ms(2000);			
+			delay_ms(2000);
 		}
-		else
-		{
-			Flag_AT_Unusual = 0xAA;
-			return 1;		
-		}
+		else if((ret == CMD_ACK_OK) || (ret == CMD_ACK_DISCONN))
+			break;
+		
+		count--;
 	}
-
-		//AT指令已经完成，并且不需要对返回值进行处理，所以直接清零
-	Clear_Usart3();
-  return 0;
+	
+	Clear_Usart3();	
+	return ret;
 }
 
 
 	//设置PDP上下文,互联网接协议,接入点等信息
 u8 SIM800_GPRS_CGDCONT(void)
 {
-	u8 count = 0;
-	while(SIM800_Send_Cmd("AT+CGDCONT=1,\"IP\",\"CMNET\"","OK",300))//检测是否应答AT指令 
+	u8 count = COUNT_AT;
+	u8 ret = CMD_ACK_NONE;
+	while(count != 0)
 	{
-		if(count < COUNT_AT)
+		ret = SIM800_Send_Cmd("AT+CGDCONT=1,\"IP\",\"CMNET\"","OK",300);
+		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
 		{
-			count += 1;
-			delay_ms(2000);			
-		}
-		else
-		{
-			Flag_AT_Unusual = 0xAA;
-			return 1;		
-		}
-	}
-
-		//AT指令已经完成，并且不需要对返回值进行处理，所以直接清零
-	Clear_Usart3();
-  return 0;
-}
-
-
-u8 Link_Server_Echo(void)
-{
-	u8 count = 0;
-	while(Link_Server_AT(0,ipaddr,port))
-	{
-		if(count < COUNT_AT)
-		{
-		  count += 1;
 			delay_ms(2000);
 		}
-		else
-		{
-			Flag_AT_Unusual = 0xAA;
-			return 1;
-		}
+		else if((ret == CMD_ACK_OK) || (ret == CMD_ACK_DISCONN))
+			break;
+		
+		count--;
 	}
-	//AT指令的回文已经处理完成，清零
-	Clear_Usart3();
-	return 0;
+	
+	Clear_Usart3();	
+	return ret;
 }
-
 
 u8 Link_Server_AT(u8 mode,const char* ipaddr,const char *port)
 {
-	u8 count = 0;
-	u8 res = 0xAA;
+	u8 count = COUNT_AT;
+	u8 ret = CMD_ACK_NONE;
 	char *temp1 = NULL;
 	char *temp2 = NULL;
 	char *temp3 = NULL;
@@ -523,84 +499,64 @@ u8 Link_Server_AT(u8 mode,const char* ipaddr,const char *port)
 	else 
 		;
 		
-  sprintf((char*)p,"AT+CIPSTART=\"%s\",\"%s\",\"%s\"",modetbl[mode],ipaddr,port);	
+  	sprintf((char*)p,"AT+CIPSTART=\"%s\",\"%s\",\"%s\"",modetbl[mode],ipaddr,port);	
 
 	//发起连接
 	//AT+IPSTART指令可能的回文是：CONNECT OK 和ALREADY CONNECT和CONNECT FAIL
 	//这里先取三种可能回文的公共部分来作为判断该指令有正确回文的依据
 
-	while(SIM800_Send_Cmd(p,"CONNECT",500))//检测是否应答AT指令 
+
+	while(count != 0)
 	{
-		if(count < COUNT_AT)
+		ret = SIM800_Send_Cmd(p,"CONNECT",500);
+		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
 		{
-			count += 1;
-			delay_ms(2000);			
+			delay_ms(2000);
 		}
-		else
-		{
-			Flag_AT_Unusual = 0xAA;
-			return 1;		
-		}
+		else if((ret == CMD_ACK_OK) || (ret == CMD_ACK_DISCONN))
+			break;
+		
+		count--;
 	}
-	
+		
 	//AT指令已经指令完成，下面对返回值进行处理
-
-	for(index = 0; index < 256; index++)
+	if(ret == CMD_ACK_OK)
 	{
-		p[index]= USART3_RX_BUF[index];
+		for(index = 0; index < 256; index++)
+		{
+			p[index]= USART3_RX_BUF[index];
+		}
+		temp1 = strstr((const char*)p,"CONNECT OK");
+		temp2 = strstr((const char*)p,"ALREADY CONNECT");
+		temp3 = strstr((const char*)p,"CONNECT FAIL");
+					
+		if(temp3 != NULL)
+		{
+			ret = CMD_ACK_NOK;
+		}
 	}
-	temp1 = strstr((const char*)p,"CONNECT OK");
-	temp2 = strstr((const char*)p,"ALREADY CONNECT");
-	temp3 = strstr((const char*)p,"CONNECT FAIL");
-	
-	if(temp1 != NULL)
-	{
-		//AT指令的回文已经处理完成，清零
-		Clear_Usart3();
-		res = 0;
-	}
-	if(temp2 != NULL)
-	{
-		//AT指令的回文已经处理完成，清零
-		Clear_Usart3();
-		res = 0;
-	}			
-	if(temp3 != NULL)
-	{
-		res = 2;
-	}
-	return res;
+	Clear_Usart3();
+	return ret;
 }
-
-
-
 
 u8 Send_Data_To_Server(char* data)
 {
-	u8 res = 0xBB;
-	if(SIM800_Send_Cmd("AT+CIPSEND",">",500)==0)		//发送数据
+	u8 ret = CMD_ACK_NONE;
+	ret = SIM800_Send_Cmd("AT+CIPSEND",">",500);
+	if(ret==CMD_ACK_OK)		//发送数据
 	{ 
 		Clear_Usart3();
 		u3_printf("%s\r\n",data);
 		delay_ms(100);
-
-		if(SIM800_Send_Cmd((u8*)0x1A,"SEND OK",1000)==0)
+		ret=SIM800_Send_Cmd((u8*)0x1A,"SEND OK",1000);
+		if(ret==CMD_ACK_OK)
 		{
 			Clear_Usart3();
-			res = 0x00;
-		}
-		else 
-		{
-			res = 0x01;
 		}
 	  //delay_ms(1000); 
 	}
-	else 
-	{
-		res = 0x01;
-	}
 	
-	return res;
+	return ret;
 }
 
 
@@ -784,7 +740,7 @@ void SIM800_Powerkey_Restart(void)
 		delay_ms(1000);
 	}
 	SIM800_PWRKEY_ON();
-
+	
 }
 
 void SIM800_Power_Restart(void)
@@ -802,180 +758,67 @@ void SIM800_Power_Restart(void)
 
 }
 
-//返回1		某条AT指令执行错误
+//返回1   某条AT指令执行错误
 //返回0   成功连接上服务器
 u8 SIM800_Link_Server_AT(void)
 {
-//操作AT指令进行联网操作
-	Check_Module();
-	if(Flag_AT_Unusual == 0xAA)
-	{
-		Flag_AT_Unusual = 0;
-		return 1;
-	}
-	else
-	{
-		Disable_Echo();
-		if(Flag_AT_Unusual == 0xAA)
-		{
-			Flag_AT_Unusual = 0;
-			return 1;
-		}
-		else
-		{
-			Check_SIM_Card();
-			if(Flag_AT_Unusual == 0xAA)
-			{
-				Flag_AT_Unusual = 0;
-				return 1;
-			}
-				else
-				{
-					Check_CSQ();
-					if(Flag_AT_Unusual == 0xAA)
-					{
-						Flag_AT_Unusual = 0;
-						return 1;
-					}
-					else
-					{
-						Get_ICCID();
-						if(Flag_AT_Unusual == 0xAA)
-						{
-							Flag_AT_Unusual = 0;
-							return 1;
-						}
-//						else	
-//						{
-//								SIM800_GPRS_OFF();
-//								if(Flag_AT_Unusual == 0xAA)
-//								{
-//									Flag_AT_Unusual = 0;
-//									BSP_Printf("1\r\n");
-//									return 1;
-//								}
-								else
-								{
-									SIM800_GPRS_CIPSHUT();
-									if(Flag_AT_Unusual == 0xAA)
-									{
-										Flag_AT_Unusual = 0;
-										BSP_Printf("2\r\n");
-										return 1;
-									}
-									else	
-									{
-										SIM800_GPRS_CGCLASS();
-										if(Flag_AT_Unusual == 0xAA)
-										{
-											Flag_AT_Unusual = 0;
-											BSP_Printf("3\r\n");
-											return 1;
-										}
-										else
-										{
-											SIM800_GPRS_CGDCONT();
-											if(Flag_AT_Unusual == 0xAA)
-											{
-												Flag_AT_Unusual = 0;
-												BSP_Printf("4\r\n");
-												return 1;
-											}
-											else
-											{
-												SIM800_GPRS_Adhere();
-												if(Flag_AT_Unusual == 0xAA)
-											  {
-													Flag_AT_Unusual = 0;
-													BSP_Printf("5\r\n");
-													return 1;
-											  }
-												else
-												{
-													SIM800_GPRS_Set();
-													if(Flag_AT_Unusual == 0xAA)
-													{
-														Flag_AT_Unusual = 0;
-														BSP_Printf("6\r\n");
-														return 1;
-													}			
-//													else
-//													{
-//														SIM800_GPRS_Dispaly_IP();
-//														if(Flag_AT_Unusual == 0xAA)
-//														{
-//															Flag_AT_Unusual = 0;
-//															BSP_Printf("7\r\n");
-//															return 1;
-//														}	
-														else		
-														{
-															Link_Server_Echo();
-															if(Flag_AT_Unusual == 0xAA)
-															{
-																Flag_AT_Unusual = 0;
-																BSP_Printf("8\r\n");
-																return 1;
-															}
-															else
-															{
+	u8 ret = CMD_ACK_NONE;
+	//操作AT指令进行联网操作
+	if((ret = Check_Module()) == CMD_ACK_OK)
+		if((ret = Disable_Echo()) == CMD_ACK_OK)
+			if((ret = Check_SIM_Card()) == CMD_ACK_OK)
+				if((ret = Check_CSQ()) == CMD_ACK_OK)
+					if((ret = Get_ICCID()) == CMD_ACK_OK)
+						if((ret = Check_OPS()) == CMD_ACK_OK)
+							//if((ret = SIM800_GPRS_OFF()) == CMD_ACK_OK)
+								if((ret = SIM800_GPRS_CIPSHUT()) == CMD_ACK_OK)
+									if((ret = SIM800_GPRS_CGCLASS()) == CMD_ACK_OK)
+										if((ret = SIM800_GPRS_CGDCONT()) == CMD_ACK_OK)
+											//if((ret = SIM800_GPRS_Adhere()) == CMD_ACK_OK)
+												if((ret = SIM800_GPRS_Set()) == CMD_ACK_OK)
+													//if((ret = SIM800_GPRS_Dispaly_IP()) == CMD_ACK_OK)
+														if((ret = Link_Server_AT(0, ipaddr, port)) == CMD_ACK_OK)											
 																;
-															}
-														}															
-													//}
-												}	
-											}
-										}	
-									}										
-								}
-							//}
-						}												
-					}						
-				}
-		}
- return 0;			
+
+	return ret;
 }
 
 u8 SIM800_Link_Server_Powerkey(void)
 {
-	u8 temp_Powerkey = 5;
-	u8 temp = 0xAA;	
-	while(temp_Powerkey != 0)
+	u8 count = 5;
+	u8 ret = CMD_ACK_NONE;	
+	while(count != 0)
 	{
-		temp_Powerkey -= 1;
-		temp = SIM800_Link_Server_AT();
-		if(temp == 0x01)
+		ret = SIM800_Link_Server_AT();
+		if(ret != CMD_ACK_OK)
 		{
 			SIM800_Powerkey_Restart();
 		}
-		if(temp == 0x00)
-		{
-			return 0;
-		}	
+		else
+			break;
+		count--;
 	}
 
-	return 1;
+	return CMD_ACK_OK;
 
 }
 u8 SIM800_Link_Server(void)
 {
-	u8 temp_Power = 5;
-	u8 temp = 0xAA;
-	while(temp_Power != 0)
+	u8 count = 5;
+	u8 ret = CMD_ACK_NONE;
+	while(count != 0)
 	{
-		temp_Power -= 1;
-		temp = SIM800_Link_Server_Powerkey();
-		if(temp == 0x01)
+		ret = SIM800_Link_Server_Powerkey();
+		if(ret != CMD_ACK_OK)
 		{
 			SIM800_Power_Restart();
 		}
-		if(temp == 0x00)
-		{
-			return 0;
-		}	
+		else
+			break;
+		count--;
 	}
 	
-	return 1;
+	return ret;
 
 }
 
@@ -1052,7 +895,7 @@ void Get_Login_Data(void)
 	Result_Validation = Check_Xor_Sum(Login_Buffer, strlen(Login_Buffer));
 	
 	//校验值转化为字符串
-  sprintf(temp_Result,"%d",Result_Validation);
+  	sprintf(temp_Result,"%d",Result_Validation);
 	
 	//添加校验值
 	//判断校验值是否是三个字符
@@ -1118,127 +961,69 @@ void Get_Login_Data(void)
 //发送登陆信息给服务器
 u8 Send_Login_Data(void)
 {
-	u8 temp = 0xAA;
+	u8 ret = CMD_ACK_NONE;
 	Get_Login_Data();
 	BSP_Printf("Login_Buffer:%s\r\n",Login_Buffer);
-	temp = Send_Data_To_Server(Login_Buffer);
+	ret = Send_Data_To_Server(Login_Buffer);
 	//发送成功
-	if(temp == 0x00)
+	if(ret == CMD_ACK_OK)
 	{
 		Flag_ACK_Resend = 0x01;
 		Flag_ACK_Echo = 0x01;
 		//开启等待服务器回文的超时机制
 		Flag_Wait_Echo = 0xAA;
-		return 0;
 	}
-	//发送失败
-	if(temp == 0x01)
-	{
-		return 1;
-	}
+
+	return ret;
+
 }
 
 u8 Send_Login_Data_Normal(void)
 {
 	u8 temp = 0;
-	u8 temp_result = 0xAA;
+	u8 ret = CMD_ACK_NONE;
 	u8 count = 5;	//执行count次，还不成功的话，就重启GPRS
 	while(count != 0)
 	{
-		count -= 1;
 		Clear_Usart3();
-		temp_result = Send_Login_Data();
-		if(temp_result == 0x01)
+		ret = Send_Login_Data();
+		Clear_Usart3();
+		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
 		{
 			//发送数据失败
-			Clear_Usart3();
 			for(temp = 0; temp < 30; temp++)
 			{
 				delay_ms(1000);
 			}
 		}
-		if(temp_result == 0x00)
-		{
-			Clear_Usart3();
-			return 0;
-		}
+		else if((ret == CMD_ACK_OK) ||(ret == CMD_ACK_DISCONN))
+			break;
+		count -= 1;
 	}
 	
-	Clear_Usart3();
-	return 1;
+	return ret;
 	
-}
-
-u8 Send_Login_Data_GPRS(void)
-{
-	u8 temp_GPRS = 5;
-	u8 temp = 0xAA;
-	while(temp_GPRS != 0)
-	{
-		temp_GPRS -= 1;
-		temp = Send_Login_Data_Normal();
-		if(temp == 0x01)
-		{
-			SIM800_GPRS_Restart();
-
-		}
-		if(temp == 0x00)
-		{
-			return 0;
-		}
-	
-	}
-
-	return 1;
-
-}
-
-u8 Send_Login_Data_Powerkey(void)
-{
-	u8 temp_Powerkey = 5;
-	u8 temp = 0xAA;
-	while(temp_Powerkey != 0)
-	{
-		temp_Powerkey -= 1;
-		temp = Send_Login_Data_GPRS();
-		if(temp == 0x01)
-		{
-			SIM800_Powerkey_Restart();
-		}
-		if(temp == 0x00)
-		{
-			return 0;
-		}
-	
-	}
-
-	return 1;
-
 }
 
 u8 Send_Login_Data_To_Server(void)
 {
-	u8 temp_Power = 5;
-	u8 temp = 0xAA;
+	u8 count = 5;
+	u8 ret = CMD_ACK_NONE;
 	current_cmd = CMD_LOGIN;
 	Flag_Send_Heart = 0x00;    //把当前心跳定时器停掉，主循环里收到登录回文后会打开正常心跳
-	while(temp_Power != 0)
+	while(count != 0)
 	{
-		temp_Power -= 1;
-		temp = Send_Login_Data_Powerkey();
-		if(temp == 0x01)
+		ret = Send_Login_Data_Normal();
+		if(ret != CMD_ACK_OK)
 		{
-			SIM800_Power_Restart();
+			SIM800_GPRS_Restart();
 		}
-		
-		if(temp == 0x00)
-		{
-			return 0;
-		}	
+		else
+			break;
+		count--;	
 	}
 
-	current_cmd = CMD_NONE;	
-	return 1;
+	return ret;
 
 }
 
@@ -1363,126 +1148,55 @@ void Get_Heart_Data(void)
 //发送心跳包给服务器
 u8 Send_Heart_Data(void)
 {
-	u8 temp = 0xAA;
+	u8 ret = CMD_ACK_NONE;
 	Get_Heart_Data();
-	temp = Send_Data_To_Server(Heart_Buffer);
+	ret = Send_Data_To_Server(Heart_Buffer);
 	//发送成功
-	if(temp == 0x00)
+	if(ret == CMD_ACK_OK)
 	{
 		Flag_ACK_Resend = 0x02;
 		Flag_ACK_Echo = 0x02;
 		//开启等待服务器回文的超时机制
 		Flag_Wait_Echo = 0xAA;
-		return 0;
 	}
-	//发送失败
-	if(temp == 0x01)
-	{
-		return 1;
-	}
+
+	return ret;
+
 }
 
 u8 Send_Heart_Data_Normal(void)
 {
 	u8 temp = 0;
-	u8 temp_result = 0xAA;
+	u8 ret = CMD_ACK_NONE;
 	u8 count = 5;	//执行count次，还不成功的话，就重启GPRS
 	while(count != 0)
 	{
-		count -= 1;
 		Clear_Usart3();
-		temp_result = Send_Heart_Data();
-		if(temp_result == 0x01)
+		ret = Send_Heart_Data();
+		Clear_Usart3();
+		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
 		{
 			//发送数据失败
-			Clear_Usart3();
 			for(temp = 0; temp < 30; temp++)
 			{
 				delay_ms(1000);
 			}
 		}
-		if(temp_result == 0x00)
-		{
-			Clear_Usart3();
-			return 0;
-		}
+		else if((ret == CMD_ACK_OK) ||(ret == CMD_ACK_DISCONN))
+			break;
+		count -= 1;
 	}
 	
-	Clear_Usart3();
-	return 1;
-
-}
-
-u8 Send_Heart_Data_GPRS(void)
-{
-	u8 temp_GPRS = 5;
-	u8 temp = 0xAA;
-	while(temp_GPRS != 0)
-	{
-		temp_GPRS -= 1;
-		temp = Send_Heart_Data_Normal();
-		if(temp == 0x01)
-		{
-			SIM800_GPRS_Restart();
-
-		}
-		if(temp == 0x00)
-		{
-			return 0;
-		}
-	
-	}
-
-	return 1;
-
-}
-
-u8 Send_Heart_Data_Powerkey(void)
-{
-	u8 temp_Powerkey = 5;
-	u8 temp = 0xAA;
-	while(temp_Powerkey != 0)
-	{
-		temp_Powerkey -= 1;
-		temp = Send_Heart_Data_GPRS();
-		if(temp == 0x01)
-		{
-			SIM800_Powerkey_Restart();
-		}
-		if(temp == 0x00)
-		{
-			return 0;
-		}
-	
-	}
-
-	return 1;
+	return ret;
 
 }
 
 u8 Send_Heart_Data_To_Server(void)
 {
-	u8 temp_Power = 5;
-	u8 temp = 0xAA;
+	u8 ret = CMD_ACK_NONE;
 	current_cmd = CMD_HB;	
-	while(temp_Power != 0)
-	{
-		temp_Power -= 1;
-		temp = Send_Heart_Data_Powerkey();
-		if(temp == 0x01)
-		{
-			SIM800_Power_Restart();
-		}
-		
-		if(temp == 0x00)
-		{
-			return 0;
-		}	
-	}
-	
-	current_cmd = CMD_NONE;	
-	return 1;
-
+	ret = Send_Heart_Data_Normal();
+	return ret;
 }
 
 void Get_Resend_Data(void)
@@ -1584,125 +1298,55 @@ void Get_Resend_Data(void)
 //收到的消息校验错误，要求服务器重新发送
 u8 Send_Resend_Data(void)
 {
-	u8 temp = 0xAA;
+	u8 ret = CMD_ACK_NONE;
 	Get_Resend_Data();
-	temp = Send_Data_To_Server(Resend_Buffer);
+	ret = Send_Data_To_Server(Resend_Buffer);
 	//发送成功
-	if(temp == 0x00)
+	if(ret == CMD_ACK_OK)
 	{
 		Flag_ACK_Resend = 0x03;
 		Flag_ACK_Echo = 0x03;
 		//开启等待服务器回文的超时机制
 		Flag_Wait_Echo = 0xAA;
-		return 0;
 	}
-	//发送失败
-	if(temp == 0x01)
-	{
-		return 1;
-	}
+
+	return ret;
+
 }
 
 u8 Send_Resend_Data_Normal(void)
 {
 	u8 temp = 0;
-	u8 temp_result = 0xAA;
+	u8 ret = CMD_ACK_NONE;
 	u8 count = 5;	//执行count次，还不成功的话，就重启GPRS
 	while(count != 0)
 	{
-		count -= 1;
 		Clear_Usart3();
-		temp_result = Send_Resend_Data();
-		if(temp_result == 0x01)
+		ret = Send_Resend_Data();
+		Clear_Usart3();
+		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
 		{
 			//发送数据失败
-			Clear_Usart3();
 			for(temp = 0; temp < 30; temp++)
 			{
 				delay_ms(1000);
 			}
 		}
-		if(temp_result == 0x00)
-		{
-			Clear_Usart3();
-			return 0;
-		}
-	}
-	
-
-	Clear_Usart3();
-	return 1;
-
-}
-
-u8 Send_Resend_Data_GPRS(void)
-{
-	u8 temp_GPRS = 5;
-	u8 temp = 0xAA;
-	while(temp_GPRS != 0)
-	{
-		temp_GPRS -= 1;
-		temp = Send_Resend_Data_Normal();
-		if(temp == 0x01)
-		{
-			SIM800_GPRS_Restart();
-
-		}
-		if(temp == 0x00)
-		{
-			return 0;
-		}
-	
+		else if((ret == CMD_ACK_OK) ||(ret == CMD_ACK_DISCONN))
+			break;
+		count --;
 	}
 
-	return 1;
-
-}
-
-u8 Send_Resend_Data_Powerkey(void)
-{
-	u8 temp_Powerkey = 5;
-	u8 temp = 0xAA;
-	while(temp_Powerkey != 0)
-	{
-		temp_Powerkey -= 1;
-		temp = Send_Resend_Data_GPRS();
-		if(temp == 0x01)
-		{
-			SIM800_Powerkey_Restart();
-		}
-		if(temp == 0x00)
-		{
-			return 0;
-		}
-	
-	}
-
-	return 1;
+	return ret;
 
 }
 
 u8 Send_Resend_Data_To_Server(void)
 {
-	u8 temp_Power = 5;
-	u8 temp = 0xAA;
-	while(temp_Power != 0)
-	{
-		temp_Power -= 1;
-		temp = Send_Resend_Data_Powerkey();
-		if(temp == 0x01)
-		{
-			SIM800_Power_Restart();
-		}
-		
-		if(temp == 0x00)
-		{
-			return 0;
-		}	
-	}
-		
-	return 1;
-
+	u8 ret = CMD_ACK_NONE;
+	//current_cmd =  之前的流程，所以不需要改变;		
+	ret = Send_Resend_Data_Normal();
+	return ret;
 }
 
 
@@ -1829,127 +1473,58 @@ void Get_Enable_Data(void)
 //发送接收业务指令完成回文给服务器
 u8 Send_Enable_Data(void)
 {
-	u8 temp = 0xAA;
+	u8 ret = CMD_ACK_NONE;
 	Get_Enable_Data();
-	temp = Send_Data_To_Server(Enbale_Buffer);
+	ret = Send_Data_To_Server(Enbale_Buffer);
 	//发送成功
-	if(temp == 0x00)
+	if(ret == CMD_ACK_OK)
 	{
 		Flag_ACK_Resend = 0x04;
 		Flag_ACK_Echo = 0x04;    //事实上这条消息不需要超时重发
 		//开启等待服务器回文的超时机制
 		Flag_Wait_Echo = 0xAA;
-		return 0;
 	}
-	//发送失败
-	if(temp == 0x01)
-	{
-		return 1;
-	}
+
+	return ret;
+
 }
 
 u8 Send_Enable_Data_Normal(void)
 {
 	u8 temp = 0;
-	u8 temp_result = 0xAA;
+	u8 ret = CMD_ACK_NONE;
 	u8 count = 5;	//执行count次，还不成功的话，就重启GPRS
 	while(count != 0)
 	{
-		count -= 1;
 		Clear_Usart3();
-		temp_result = Send_Enable_Data();
-		if(temp_result == 0x01)
+		ret= Send_Enable_Data();
+		Clear_Usart3();
+		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
 		{
 			//发送数据失败
-			Clear_Usart3();
 			for(temp = 0; temp < 30; temp++)
 			{
 				delay_ms(1000);
 			}
 		}
-		if(temp_result == 0x00)
-		{
-			Clear_Usart3();
-			return 0;
-		}
+		else if((ret == CMD_ACK_OK) ||(ret == CMD_ACK_DISCONN))
+			break;
+		count -= 1;
 	}
 	
-	Clear_Usart3();
-	return 1;
+	return ret;
 
 }
 
-u8 Send_Enable_Data_GPRS(void)
-{
-	u8 temp_GPRS = 5;
-	u8 temp = 0xAA;
-	while(temp_GPRS != 0)
-	{
-		temp_GPRS -= 1;
-		temp = Send_Enable_Data_Normal();
-		if(temp == 0x01)
-		{
-			SIM800_GPRS_Restart();
-
-		}
-		if(temp == 0x00)
-		{
-			return 0;
-		}
-	
-	}
-
-	return 1;
-
-}
-
-u8 Send_Enable_Data_Powerkey(void)
-{
-	u8 temp_Powerkey = 5;
-	u8 temp = 0xAA;
-	while(temp_Powerkey != 0)
-	{
-		temp_Powerkey -= 1;
-		temp = Send_Enable_Data_GPRS();
-		if(temp == 0x01)
-		{
-			SIM800_Powerkey_Restart();
-		}
-		if(temp == 0x00)
-		{
-			return 0;
-		}
-	
-	}
-
-	return 1;
-
-}
-
+//这个流程其实是一条设备回文，设备在CMD_NONE 状态的时候(当前没有处理任何消息)才会进入此流程
+//当然硬件的开关在收到服务器指令时就需要完成，不依赖于这条消息什么时候发送    
 u8 Send_Enable_Data_To_Server(void)
 {
-	u8 temp_Power = 5;
-	u8 temp = 0xAA;
-	current_cmd = CMD_ENABLE_DEVICE;
-	while(temp_Power != 0)
-	{
-		temp_Power -= 1;
-		temp = Send_Enable_Data_Powerkey();
-		if(temp == 0x01)
-		{
-			SIM800_Power_Restart();
-		}
-		
-		if(temp == 0x00)
-		{
-			current_cmd = CMD_NONE;	    //这条命令发完就完了，不期待任何返回		
-			return 0;
-		}	
-	}
-
+	u8 ret = CMD_ACK_NONE;
+	current_cmd = CMD_ENABLE_DEVICE; 
+	ret = Send_Enable_Data_Normal();
 	current_cmd = CMD_NONE;    //这条命令发完就完了，不期待任何返回		
-	return 1;
-
+	return ret;
 }
 
 void Get_Device_OK_Data(void)
@@ -2074,126 +1649,55 @@ void Get_Device_OK_Data(void)
 //发送业务执行完成指令给服务器
 u8 Send_Device_OK_Data(void)
 {
-	u8 temp = 0xAA;
+	u8 ret = CMD_ACK_NONE;
 	Get_Device_OK_Data();
-	temp = Send_Data_To_Server(Device_OK_Buffer);
+	ret = Send_Data_To_Server(Device_OK_Buffer);
 	//发送成功
-	if(temp == 0x00)
+	if(ret == CMD_ACK_OK)
 	{
 		Flag_ACK_Resend = 0x05;
 		Flag_ACK_Echo = 0x05;
 		//开启等待服务器回文的超时机制
 		Flag_Wait_Echo = 0xAA;
-		return 0;
 	}
-	//发送失败
-	if(temp == 0x01)
-	{
-		return 1;
-	}
+
+	return ret;
+
 }
 
 u8 Send_Device_OK_Data_Normal(void)
 {
 	u8 temp = 0;
-	u8 temp_result = 0xAA;
+	u8 ret = CMD_ACK_NONE;
 	u8 count = 5;	//执行count次，还不成功的话，就重启GPRS
 	while(count != 0)
 	{
-		count -= 1;
 		Clear_Usart3();
-		temp_result = Send_Device_OK_Data();
-		if(temp_result == 0x01)
+		ret = Send_Device_OK_Data();
+		Clear_Usart3();
+		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
 		{
 			//发送数据失败
-			Clear_Usart3();
 			for(temp = 0; temp < 30; temp++)
 			{
 				delay_ms(1000);
 			}
 		}
-		if(temp_result == 0x00)
-		{
-			Clear_Usart3();
-			return 0;
-		}
+		else if((ret == CMD_ACK_OK) ||(ret == CMD_ACK_DISCONN))
+			break;
+		count --;		
 	}
 
-	Clear_Usart3();
-	return 1;
-
-}
-
-u8 Send_Device_OK_Data_GPRS(void)
-{
-	u8 temp_GPRS = 5;
-	u8 temp = 0xAA;
-	while(temp_GPRS != 0)
-	{
-		temp_GPRS -= 1;
-		temp = Send_Device_OK_Data_Normal();
-		if(temp == 0x01)
-		{
-			SIM800_GPRS_Restart();
-
-		}
-		if(temp == 0x00)
-		{
-			return 0;
-		}
-	
-	}
-
-	return 1;
-
-}
-
-u8 Send_Device_OK_Data_Powerkey(void)
-{
-	u8 temp_Powerkey = 5;
-	u8 temp = 0xAA;
-	while(temp_Powerkey != 0)
-	{
-		temp_Powerkey -= 1;
-		temp = Send_Device_OK_Data_GPRS();
-		if(temp == 0x01)
-		{
-			SIM800_Powerkey_Restart();
-		}
-		if(temp == 0x00)
-		{
-			return 0;
-		}
-	
-	}
-
-	return 1;
+	return ret;
 
 }
 
 u8 Send_Device_OK_Data_To_Server(void)
 {
-	u8 temp_Power = 5;
-	u8 temp = 0xAA;
+	u8 ret = CMD_ACK_NONE;
 	current_cmd = CMD_CLOSE_DEVICE;
-	while(temp_Power != 0)
-	{
-		temp_Power -= 1;
-		temp = Send_Device_OK_Data_Powerkey();
-		if(temp == 0x01)
-		{
-			SIM800_Power_Restart();
-		}
-		
-		if(temp == 0x00)
-		{
-			return 0;
-		}	
-	}
-
-	current_cmd = CMD_NONE;	
-	return 1;
-
+	ret = Send_Device_OK_Data_Normal();
+	return ret;
 }
 
 

@@ -29,7 +29,7 @@ extern char Enbale_Buffer[LENGTH_ENABLE];
 extern char Device_OK_Buffer[LENGTH_DEVICE_OK];
 
 /*********WJ*********/
-u8* SIM800_Check_Cmd(u8 *str);
+bool SIM800_Check_Cmd(u8 *str);
 u8 	SIM800_Send_Cmd(u8 *cmd,u8 *ack,u16 waittime);
 void Clear_buffer(char* buffer,u16 length);
 u8 Check_Xor_Sum(char* pBuf, u16 len);
@@ -121,6 +121,13 @@ enum
 	CMD_NONE,
 };
 
+enum
+{ 
+	CMD_ACK_OK = 0,                 //USART3_RX_STA置位，返回的数据正确
+	CMD_ACK_NOK = 1,               //USART3_RX_STA置位，返回的数据不正确
+	CMD_ACK_DISCONN = 2,       //USART3_RX_STA置位，返回的数据表明掉线
+	CMD_ACK_NONE,                  //USART3_RX_STA没有置位
+};
 
 #endif
 
