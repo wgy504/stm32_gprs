@@ -555,6 +555,21 @@ int main(void)
 				}	
 		}
 
+		//接收到了SIM800C的信息
+		if(0x01 == Receive_Data_From_USART())	
+		{
+			/*暂时不做处理*/
+			//清零串口3的接收标志变量
+			
+			BSP_Printf("Main USART3_RX_BUF_SIM800C:%s\r\n",USART3_RX_BUF);
+
+			if(strstr((const char*)USART3_RX_BUF,"CLOSED")!=NULL)
+				Flag_Received_SIM800C_CLOSED = 0xAA;
+			if(strstr((const char*)USART3_RX_BUF,"+PDP: DEACT")!=NULL)
+				Flag_Received_SIM800C_DEACT = 0xAA;
+			Clear_Usart3();
+
+		}
 	}
 }
 

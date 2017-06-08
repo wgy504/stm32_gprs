@@ -20,7 +20,8 @@ const char *modetbl[2] = {"TCP","UDP"};//连接模式
 //const char  *ipaddr = "tuzihog.oicp.net";
 //const char  *port = "28106";
 
-const char  *ipaddr = "42.159.117.91";
+//const char  *ipaddr = "42.159.117.91";
+const char  *ipaddr = "116.62.187.167";
 const char  *port = "8090";
 
 
@@ -313,7 +314,7 @@ u8 SIM800_GPRS_ON(void)
 	u8 ret = CMD_ACK_NONE;
 	while(count != 0)
 	{
-		ret = SIM800_Send_Cmd("AT+CIPSTART=\"TCP\",\"42.159.117.91\",\"8090\"","CONNECT OK",300);
+		ret = SIM800_Send_Cmd("AT+CIPSTART=\"TCP\",\"116.62.187.167\",\"8090\"","CONNECT OK",300);
 		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
 		{
 			delay_ms(2000);
@@ -767,9 +768,9 @@ u8 SIM800_Link_Server_AT(void)
 	if((ret = Check_Module()) == CMD_ACK_OK)
 		if((ret = Disable_Echo()) == CMD_ACK_OK)
 			if((ret = Check_SIM_Card()) == CMD_ACK_OK)
-				if((ret = Check_CSQ()) == CMD_ACK_OK)
+				//if((ret = Check_CSQ()) == CMD_ACK_OK)
 					if((ret = Get_ICCID()) == CMD_ACK_OK)
-						if((ret = Check_OPS()) == CMD_ACK_OK)
+						//if((ret = Check_OPS()) == CMD_ACK_OK)
 							//if((ret = SIM800_GPRS_OFF()) == CMD_ACK_OK)
 								if((ret = SIM800_GPRS_CIPSHUT()) == CMD_ACK_OK)
 									if((ret = SIM800_GPRS_CGCLASS()) == CMD_ACK_OK)
