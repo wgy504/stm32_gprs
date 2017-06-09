@@ -20,7 +20,6 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32F10x.h"
-#include "STM32vldiscovery.h"
 #include "usart.h"
 #include "usart3.h"
 #include "delay.h"
@@ -29,6 +28,7 @@
 #include <string.h>
 #include "timer.h"
 #include "SIM800.h"
+#include "device.h"
 
 
 ////////////////////////ST官方程序框架需要的变量和函数///////////////////////////////////////////
@@ -89,6 +89,12 @@ int main(void)
 	SIM800_PWRKEY_ON();
 	BSP_Printf("SIM800C开机完成\r\n");
 	
+//	Device_Init();
+//	Device_ON(DEVICE_01);
+//	Device_OFF(DEVICE_02);
+//	Is_Device_On(DEVICE_03);
+	
+	
 	//连接服务器失败，闪烁一颗LED作为提醒，后期用短信来替换
 	if(SIM800_Link_Server() != CMD_ACK_OK)
 	{
@@ -146,7 +152,7 @@ int main(void)
 					Flag_Local_Time_Dev_01 = 0xAA;    //设备可以开始计时
 				}	
 				
-				//仅当当前没有处理其他消息时，才会发送Enable 回文
+				//仅当前没有处理其他消息时，才会发送Enable 回文
 				if(current_cmd == CMD_NONE)
 				{
 					//发送回文给服务器（这里要有四路设备的状态，并且有设备的已运行时间：Count_Local_Time个50毫秒）

@@ -68,6 +68,7 @@ void TIM6_DAC_IRQHandler(void)
 	u8 result = 0;
 	u8 result_temp = 0;
 	u8 index = 0;
+	u8 *p, *p1;
 	u8 *p_temp = NULL;
 	u8 temp_array[3] = {0};
 	u8 offset = 0;
@@ -156,77 +157,89 @@ void TIM6_DAC_IRQHandler(void)
 			Count_Wait_Echo = 0;
 			Total_Wait_Echo = 0;
 				
-			//调用异或和函数来校验回文	
-			length = strlen((const char *)(USART3_RX_BUF));
-			//校验数据
-			result = Check_Xor_Sum((char *)(USART3_RX_BUF),length-5);
-			BSP_Printf("result:%d\r\n",result);
-			
-			//取字符串中的校验值
-			p_temp = (USART3_RX_BUF+length-5);
-			offset = 3;
-			for(index = 0;index < offset;index++)
+			p=strstr((const char*)USART3_RX_BUF,"TRVBP");
+			if((p1=strstr((const char*)p,"#"))!=NULL)
 			{
-				temp_array[index] = p_temp[index];
-			
-			}
-			//校验值转化为数字，并打印
-			result_temp = atoi((const char *)(temp_array));	
-			BSP_Printf("result_temp:%d\r\n",result_temp);			
-			p_temp = USART3_RX_BUF;
-			
-			//回文正确
-			if(result == result_temp)
-			{
-				//收到设备登陆信息的回文
-				if(strstr((const char*)USART3_RX_BUF,"TRVBP00"))
+				//调用异或和函数来校验回文	
+				//length = strlen((const char *)(USART3_RX_BUF));
+				length = p1 - p +1;
+				//校验数据
+				result = Check_Xor_Sum((char *)(p),length-5);
+				BSP_Printf("result:%d\r\n",result);
+				
+				//取字符串中的校验值
+				p_temp = (p+length-5);
+				offset = 3;
+				for(index = 0;index < offset;index++)
 				{
-					Flag_Receive_Login = 0xAA;					
+					temp_array[index] = p_temp[index];
+				
 				}
-				else
+				//校验值转化为数字，并打印
+				result_temp = atoi((const char *)(temp_array));	
+				BSP_Printf("result_temp:%d\r\n",result_temp);			
+				
+				//回文正确
+				if(result == result_temp)
+				{
+					//收到设备登陆信息的回文
+					if(strstr((const char*)p,"TRVBP00"))
+					{
+						Flag_Receive_Login = 0xAA;					
+					}
+					else
+					{
 						//收到重发命令
-						if(strstr((const char*)USART3_RX_BUF,"TRVBP98"))
+						if(strstr((const char*)p,"TRVBP98"))
 						{
 							Flag_Receive_Resend = 0xAA;
 						}
 						else
-								//收到心跳回文
-								if(strstr((const char*)USART3_RX_BUF,"TRVBP01"))
+						{
+							//收到心跳回文
+							if(strstr((const char*)p,"TRVBP01"))
+							{
+								Flag_Receive_Heart = 0xAA;
+							}
+							else
+							{
+								//收到开启设备指令
+								if(strstr((const char*)p,"TRVBP03"))
 								{
-									Flag_Receive_Heart = 0xAA;
+									Flag_Receive_Enable = 0xAA;
+									//这里需要判断要打开的设备是不是已经在运行了，
+									//如果是，那就不理这条命令，让服务器通过下一条心跳判断
+									//如果不是，需要保存信息到一个新的buf里面在主循环处理
 								}
 								else
-										//收到开启设备指令
-										if(strstr((const char*)USART3_RX_BUF,"TRVBP03"))
-										{
-											Flag_Receive_Enable = 0xAA;
-											//这里需要判断要打开的设备是不是已经在运行了，
-											//如果是，那就不理这条命令，让服务器通过下一条心跳判断
-											//如果不是，需要保存信息到一个新的buf里面在主循环处理
-										}
-										else
-												//收到运行结束回文
-												if(strstr((const char*)USART3_RX_BUF,"TRVBP05"))
-												{
-													Flag_Receive_Device_OK = 0xAA;
-												}
-												else
-												{
-													Flag_Check_error = 0xAA;
-												}
-			//Clear_Usart3();
-			}   //回文正确
-			
-			
+								{
+									//收到运行结束回文
+									if(strstr((const char*)p,"TRVBP05"))
+									{
+										Flag_Receive_Device_OK = 0xAA;
+									}
+									else
+									{
+										Flag_Check_error = 0xAA;
+									}
+								}
+							}
+						}
+					}
+				}   //回文正确
 			//回文异常	
-			if(result != result_temp)
-			{
-				//置错误重发标志
-				//这里不再判定是那条语句接收出错，因为对错误的内容的进行判定，意义不大，由服务器程序来判定重发的内容
-				//同理，嵌入式程序在接收到服务器的重发请求时，也要判定是要重发那条语句
-				Flag_Check_error = 0xAA;
-				//Clear_Usart3();
+				if(result != result_temp)
+				{
+					//置错误重发标志
+					//这里不再判定是那条语句接收出错，因为对错误的内容的进行判定，意义不大，由服务器程序来判定重发的内容
+					//同理，嵌入式程序在接收到服务器的重发请求时，也要判定是要重发那条语句
+					Flag_Check_error = 0xAA;
+					//Clear_Usart3();
+				}
+					//Clear_Usart3();				
 			}
+			else
+				Flag_Check_error = 0xAA;
 		}
 		TIM_SetCounter(TIM6,0); 
 	}
