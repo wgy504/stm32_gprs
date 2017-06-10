@@ -28,6 +28,11 @@ extern char Enbale_Buffer[LENGTH_ENABLE];
 #define LENGTH_DEVICE_OK 50
 extern char Device_OK_Buffer[LENGTH_DEVICE_OK];
 
+#define LENGTH_ATCMD_ACK 50
+extern char atcmd_ack[LENGTH_ATCMD_ACK];
+extern bool need_ack_check;
+extern bool ack_ok;
+
 /*********WJ*********/
 bool SIM800_Check_Cmd(u8 *str);
 u8 	SIM800_Send_Cmd(u8 *cmd,u8 *ack,u16 waittime);

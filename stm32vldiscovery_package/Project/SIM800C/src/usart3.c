@@ -128,20 +128,3 @@ void Clear_Usart3(void)
 	USART3_RX_STA = 0;		    	//«Â¡„
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

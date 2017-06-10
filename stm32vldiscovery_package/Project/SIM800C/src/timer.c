@@ -17,6 +17,7 @@ u8 Flag_Comm_OK = 0;                            //设备已经与服务器建立连接，且收
 u8 Flag_Need_Reset = 0;
 
 extern u8 Total_Wait_Echo;
+extern u8 current_cmd;
 //////////////////////////////////
 u32 Count_Wait_Echo = 0;         //等待服务器回文的计数值，一个单位代表50ms
 u8  Flag_Wait_Echo = 0;          //需要等待服务器回文时，置位这个变量
@@ -68,8 +69,8 @@ void TIM6_DAC_IRQHandler(void)
 	u8 result = 0;
 	u8 result_temp = 0;
 	u8 index = 0;
-	u8 *p, *p1;
-	u8 *p_temp = NULL;
+	char *p, *p1;
+	char *p_temp = NULL;
 	u8 temp_array[3] = {0};
 	u8 offset = 0;
 	u8 temp = 0xAA;
@@ -156,6 +157,10 @@ void TIM6_DAC_IRQHandler(void)
 			Flag_Wait_Echo = 0;
 			Count_Wait_Echo = 0;
 			Total_Wait_Echo = 0;
+			
+			BSP_Printf("need_ack_check: %d, ack: %s\r\n",need_ack_check, atcmd_ack);
+			if(need_ack_check && strstr((const char*)USART3_RX_BUF, atcmd_ack))
+				ack_ok = TRUE;
 				
 			p=strstr((const char*)USART3_RX_BUF,"TRVBP");
 			if((p1=strstr((const char*)p,"#"))!=NULL)
@@ -185,6 +190,7 @@ void TIM6_DAC_IRQHandler(void)
 					//收到设备登陆信息的回文
 					if(strstr((const char*)p,"TRVBP00"))
 					{
+						BSP_Printf("收到设备登陆信息的回文\r\n");
 						Flag_Receive_Login = 0xAA;					
 					}
 					else
@@ -192,6 +198,7 @@ void TIM6_DAC_IRQHandler(void)
 						//收到重发命令
 						if(strstr((const char*)p,"TRVBP98"))
 						{
+							BSP_Printf("收到服务器重发命令\r\n");
 							Flag_Receive_Resend = 0xAA;
 						}
 						else
@@ -199,6 +206,7 @@ void TIM6_DAC_IRQHandler(void)
 							//收到心跳回文
 							if(strstr((const char*)p,"TRVBP01"))
 							{
+								BSP_Printf("收到服务器心跳回文\r\n");
 								Flag_Receive_Heart = 0xAA;
 							}
 							else
@@ -206,6 +214,7 @@ void TIM6_DAC_IRQHandler(void)
 								//收到开启设备指令
 								if(strstr((const char*)p,"TRVBP03"))
 								{
+									BSP_Printf("收到服务器开启设备指令\r\n");
 									Flag_Receive_Enable = 0xAA;
 									//这里需要判断要打开的设备是不是已经在运行了，
 									//如果是，那就不理这条命令，让服务器通过下一条心跳判断
@@ -216,10 +225,12 @@ void TIM6_DAC_IRQHandler(void)
 									//收到运行结束回文
 									if(strstr((const char*)p,"TRVBP05"))
 									{
+										BSP_Printf("收到服务器运行结束回文\r\n");
 										Flag_Receive_Device_OK = 0xAA;
 									}
 									else
 									{
+										BSP_Printf("不存在的服务器指令\r\n");
 										Flag_Check_error = 0xAA;
 									}
 								}
@@ -227,19 +238,25 @@ void TIM6_DAC_IRQHandler(void)
 						}
 					}
 				}   //回文正确
-			//回文异常	
+				//回文异常	
 				if(result != result_temp)
 				{
 					//置错误重发标志
 					//这里不再判定是那条语句接收出错，因为对错误的内容的进行判定，意义不大，由服务器程序来判定重发的内容
 					//同理，嵌入式程序在接收到服务器的重发请求时，也要判定是要重发那条语句
+					BSP_Printf("服务器指令校验错\r\n");
 					Flag_Check_error = 0xAA;
 					//Clear_Usart3();
-				}
-					//Clear_Usart3();				
+				}			
 			}
 			else
+			{
+				BSP_Printf("服务器指令不完整\r\n");
 				Flag_Check_error = 0xAA;
+			}
+			//服务器消息的清空放在这里了
+			Clear_Usart3();	
+			BSP_Printf("current_cmd: %d\r\n", current_cmd);
 		}
 		TIM_SetCounter(TIM6,0); 
 	}

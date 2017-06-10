@@ -6,7 +6,7 @@
 #include "timer.h"
 #include "delay.h"
 #include <stdlib.h>
-
+#include "device.h"
 
 extern u8 result_Send_Data;
 extern u8 count_Send_Data;
@@ -48,6 +48,10 @@ char Enbale_Buffer[LENGTH_ENABLE] = {0};
 //存储业务执行完成指令的数组
 char Device_OK_Buffer[LENGTH_DEVICE_OK] = {0};
 
+char atcmd_ack[LENGTH_ATCMD_ACK] = {0};
+bool need_ack_check = FALSE;
+bool ack_ok = FALSE;
+
 //SIM800发送命令后,检测接收到的应答
 //str:期待的应答结果
 //返回值:0,没有得到期待的应答结果
@@ -85,6 +89,12 @@ u8 SIM800_Send_Cmd(u8 *cmd,u8 *ack,u16 waittime)
 	}
 	else 
 	{
+		if(ack!=NULL)
+		{
+			ack_ok = FALSE;
+			memset(atcmd_ack, 0, sizeof(atcmd_ack));
+			strcpy(atcmd_ack, (char *)ack);
+		}
 		u3_printf("%s\r\n",cmd);//发送命令
 	}
 
@@ -105,11 +115,21 @@ u8 SIM800_Send_Cmd(u8 *cmd,u8 *ack,u16 waittime)
 				//没有得到有效的回文信息，清零串口3，继续下次的接收
 				else  //res == CMD_ACK_NOK
 				{
+					if(need_ack_check && ack_ok)
+						break;
+					//这里有可能清空服务器回文?	
 					Clear_Usart3();
 				}
 			} 
 			waittime--;
+			//从各个角度避免等待，如果收到了 ack 就直接跳出
+			if(need_ack_check && ack_ok)
+				break;			
 		}
+
+		//如果在TIM6里发现有at回文
+		if(need_ack_check && ack_ok)
+			res = CMD_ACK_OK;
 		
 		if(waittime == 0)
 		{
@@ -315,7 +335,7 @@ u8 SIM800_GPRS_ON(void)
 	u8 ret = CMD_ACK_NONE;
 	while(count != 0)
 	{
-		ret = SIM800_Send_Cmd("AT+CIPSTART=\"TCP\",\"42.159.107.250\",\"8090\"","CONNECT OK",300);
+		ret = SIM800_Send_Cmd("AT+CIPSTART=\"TCP\",\"42.159.107.250\",\"8090\"","CONNECT OK",700);
 		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
 		{
 			delay_ms(2000);
@@ -544,20 +564,26 @@ u8 Link_Server_AT(u8 mode,const char* ipaddr,const char *port)
 u8 Send_Data_To_Server(char* data)
 {
 	u8 ret = CMD_ACK_NONE;
+	BSP_Printf("准备开始发送数据\r\n");
 	ret = SIM800_Send_Cmd("AT+CIPSEND",">",500);
 	if(ret==CMD_ACK_OK)		//发送数据
 	{ 
-		Clear_Usart3();
+		Clear_Usart3();   //下面这个相当于一个独立的send
 		u3_printf("%s\r\n",data);
 		delay_ms(100);
-		ret=SIM800_Send_Cmd((u8*)0x1A,"SEND OK",1000);
+		need_ack_check = TRUE;
+		ret=SIM800_Send_Cmd((u8*)0x1A,"SEND OK",3000);
 		if(ret==CMD_ACK_OK)
 		{
-			Clear_Usart3();
+			//由于等待时间太长，收到Send OK的同时可能收到服务器发回的回文
+			//因此不能在这里清空
+			if(strstr((const char*)USART3_RX_BUF,"TRVBP")==NULL)
+				Clear_Usart3();	
 		}
+		need_ack_check = FALSE;		
 	  //delay_ms(1000); 
 	}
-	
+	BSP_Printf("已完成一次发送: %d\r\n", ret);
 	return ret;
 }
 
@@ -837,7 +863,7 @@ void Get_Login_Data(void)
 	char temp03[] = "0";
 	char temp04[] = "00";
 	char temp05[] = "0000,";       //设备运行状态
-	char temp06[] = "11223344,";   //设备运行时间
+	char temp06[] = "00000000,";   //设备运行时间
 
 	//清零Resend_Buffer
 	for(i = 0; i < LENGTH_LOGIN; i++)
@@ -874,20 +900,24 @@ void Get_Login_Data(void)
 	
 	
 	//添加设备状态，暂时固定为0000,
-	//temp05
+	//由于读取的是GPIO 高低，因此是设备实时状态
 	for(i = 0; i < strlen(temp05); i++)
 	{
-		temp_Login_Buffer[i] = temp05[i];
+		temp05[i] = (ON==Device_Power_Status(i))?'1':temp05[i];
+		BSP_Printf("temp05: %d\n", temp05[i]);
+		//if(ON==Device_Power_Status(i))
+			
 	}
 	
-	strcat(Login_Buffer,temp_Login_Buffer);
-	Clear_buffer(temp_Login_Buffer,LENGTH_LOGIN);
-	
+	//strcat(Login_Buffer,temp_Login_Buffer);
+	//Clear_buffer(temp_Login_Buffer,LENGTH_LOGIN);
+	strncat(Login_Buffer,temp05,strlen(temp05));
 	//添加设备运行时间，暂时固定为11223344,
 	//temp06
 	for(i = 0; i < strlen(temp06); i++)
 	{
 		temp_Login_Buffer[i] = temp06[i];
+		//if()
 	}
 	
 	strcat(Login_Buffer,temp_Login_Buffer);
@@ -987,9 +1017,9 @@ u8 Send_Login_Data_Normal(void)
 	u8 count = 5;	//执行count次，还不成功的话，就重启GPRS
 	while(count != 0)
 	{
-		Clear_Usart3();
+		//Clear_Usart3();
 		ret = Send_Login_Data();
-		Clear_Usart3();
+		//Clear_Usart3();
 		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
 		{
 			//发送数据失败
@@ -1173,9 +1203,9 @@ u8 Send_Heart_Data_Normal(void)
 	u8 count = 5;	//执行count次，还不成功的话，就重启GPRS
 	while(count != 0)
 	{
-		Clear_Usart3();
+		//Clear_Usart3();
 		ret = Send_Heart_Data();
-		Clear_Usart3();
+		//Clear_Usart3();
 		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
 		{
 			//发送数据失败
@@ -1323,9 +1353,9 @@ u8 Send_Resend_Data_Normal(void)
 	u8 count = 5;	//执行count次，还不成功的话，就重启GPRS
 	while(count != 0)
 	{
-		Clear_Usart3();
+		//Clear_Usart3();
 		ret = Send_Resend_Data();
-		Clear_Usart3();
+		//Clear_Usart3();
 		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
 		{
 			//发送数据失败
@@ -1498,9 +1528,9 @@ u8 Send_Enable_Data_Normal(void)
 	u8 count = 5;	//执行count次，还不成功的话，就重启GPRS
 	while(count != 0)
 	{
-		Clear_Usart3();
+		//Clear_Usart3();
 		ret= Send_Enable_Data();
-		Clear_Usart3();
+		//Clear_Usart3();
 		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
 		{
 			//发送数据失败
@@ -1674,9 +1704,9 @@ u8 Send_Device_OK_Data_Normal(void)
 	u8 count = 5;	//执行count次，还不成功的话，就重启GPRS
 	while(count != 0)
 	{
-		Clear_Usart3();
+		//Clear_Usart3();
 		ret = Send_Device_OK_Data();
-		Clear_Usart3();
+		//Clear_Usart3();
 		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
 		{
 			//发送数据失败

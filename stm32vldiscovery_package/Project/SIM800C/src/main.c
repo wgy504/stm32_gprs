@@ -57,6 +57,28 @@ u8 current_cmd=0;
 #define TOTAL_WAIT_ECO  3        
 u8 Total_Wait_Echo  =  0;
 
+void Reset_Event(void)
+{
+	//首先认为连接没建立
+	Flag_Comm_OK = 0;
+	//清楚重发等待
+	Total_Wait_Echo = 0;
+	Flag_Time_Out_Comm = 0; 
+	Flag_Receive_Login = 0; 	
+	Flag_ACK_Echo = 0xFF;	
+	//清除心跳包标志
+	Flag_Send_Heart = 0;
+	Flag_Send_Heart_OK = 0;
+	
+	Flag_Receive_Heart = 0; 
+
+	Flag_Check_error = 0;
+	Flag_Receive_Resend = 0;
+	Flag_Receive_Enable = 0;
+	Flag_Receive_Device_OK = 0;
+	Flag_ACK_Resend = 0xFF;	
+}
+
 int main(void)
 {
 	//u8 temp = 0x00;
@@ -89,8 +111,9 @@ int main(void)
 	SIM800_PWRKEY_ON();
 	BSP_Printf("SIM800C开机完成\r\n");
 	
-//	Device_Init();
-//	Device_ON(DEVICE_01);
+	Device_Init();
+	Device_ON(DEVICE_01);
+	Device_ON(DEVICE_03);
 //	Device_OFF(DEVICE_02);
 //	Is_Device_On(DEVICE_03);
 	
@@ -167,7 +190,7 @@ int main(void)
 					else
 					{				
 						BSP_Printf("SIM800C发送Enable 回文给服务器完成\r\n");
-						Clear_Usart3();
+						//Clear_Usart3();
 					}					
 				}
 			}
@@ -192,7 +215,7 @@ int main(void)
 					else
 					{				
 						BSP_Printf("SIM800C发送设备运行结束给服务器完成\r\n");
-						Clear_Usart3();
+						//Clear_Usart3();
 					}					
 				}
 			}
@@ -242,7 +265,7 @@ int main(void)
 					else
 					{				
 						BSP_Printf("SIM800C发送心跳包给服务器完成\r\n");
-						Clear_Usart3();
+						//Clear_Usart3();
 					}
 				}
 			}		
@@ -267,7 +290,7 @@ int main(void)
 					else
 					{
 						BSP_Printf("SIM800C发送心跳包给服务器完成\r\n");
-						Clear_Usart3();
+						//Clear_Usart3();
 					}
 				}
 				
@@ -285,7 +308,7 @@ int main(void)
 					else
 					{					
 						BSP_Printf("SIM800C发送设备运行开启命令给服务器完成\r\n");
-						Clear_Usart3();
+						//Clear_Usart3();
 					}
 				}
 				
@@ -303,7 +326,7 @@ int main(void)
 					else
 					{
 						BSP_Printf("SIM800C发送设备运行结束命令给服务器完成\r\n");
-						Clear_Usart3();
+						//Clear_Usart3();
 					}
 				}	
 			}
@@ -323,7 +346,7 @@ int main(void)
 				else
 				{
 					BSP_Printf("SIM800C发送重发命令给服务器完成\r\n");
-					Clear_Usart3();
+					//Clear_Usart3();
 				}
 			}
 
@@ -349,7 +372,7 @@ int main(void)
 					else
 					{
 						BSP_Printf("1分钟的等待服务器回文超时，发送心跳包成功\r\n");				
-						Clear_Usart3();
+						//Clear_Usart3();
 					}
 
 				}
@@ -368,7 +391,7 @@ int main(void)
 					else
 					{
 						BSP_Printf("1分钟的等待服务器回文超时，发送设备运行结束命令成功\r\n");
-						Clear_Usart3();
+						//Clear_Usart3();
 					}
 				}
 				if(Flag_ACK_Echo == 0x05)
@@ -386,7 +409,7 @@ int main(void)
 					else
 					{
 						BSP_Printf("1分钟的等待服务器回文超时，发送设备运行结束命令成功\r\n");
-						Clear_Usart3();
+						//Clear_Usart3();
 					}
 				}			
 			}
@@ -429,7 +452,7 @@ int main(void)
 					{
 						BSP_Printf("SIM800C发送心跳包给服务器完成，等待服务器回文\r\n");
 						Flag_Comm_OK = 0xAA;     //正常发出心跳才算此连接有效
-						Clear_Usart3();
+						//Clear_Usart3();
 					}	
 				}
 			}		
@@ -454,7 +477,7 @@ int main(void)
 					else
 					{
 						BSP_Printf("SIM800C发送登录信息给服务器完成\r\n");
-						Clear_Usart3();
+						//Clear_Usart3();
 					}
 				}
 			}
@@ -474,7 +497,7 @@ int main(void)
 				else
 				{
 					BSP_Printf("SIM800C发送重发命令给服务器完成\r\n");
-					Clear_Usart3();
+					//Clear_Usart3();
 				}
 			}			
 
@@ -501,7 +524,7 @@ int main(void)
 					else
 					{
 						BSP_Printf("1分钟的等待服务器回文超时，发送登录信息成功\r\n");
-						Clear_Usart3();
+						//Clear_Usart3();
 					}
 					
 				}
@@ -521,7 +544,7 @@ int main(void)
 					else
 					{					
 						BSP_Printf("1分钟的等待服务器回文超时，发送设备运行结束命令成功\r\n");
-						Clear_Usart3();
+						//Clear_Usart3();
 					}
 				}
 			}
@@ -542,14 +565,8 @@ int main(void)
 		if(Flag_Need_Reset == 0xAA)
 		{
 			BSP_Printf("开始重启\r\n");		
-			//首先认为连接没建立
-			Flag_Comm_OK = 0;
-			//清楚重发等待
-			Total_Wait_Echo = 0;
-			Flag_ACK_Echo = 0xFF;
-			//清除心跳包标志
-			Flag_Send_Heart = 0;
-			Flag_Send_Heart_OK = 0;
+	
+			Reset_Event();
 			//不清除设备运行计时标志，因为那是设备自己的状态，跟SIM800C 无关
 			
 			SIM800_Powerkey_Restart(); //或者这里直接pwr/pwrkey?
@@ -561,7 +578,7 @@ int main(void)
 				}	
 		}
 
-		//接收到了SIM800C的信息
+		//当前什么事都没干等待服务器消息时接收到了SIM800C的信息
 		if(0x01 == Receive_Data_From_USART())	
 		{
 			/*暂时不做处理*/
