@@ -33,6 +33,7 @@ extern char atcmd_ack[LENGTH_ATCMD_ACK];
 extern bool need_ack_check;
 extern bool ack_ok;
 
+extern u8  Flag_SIM800C_In_Reset;
 /*********WJ*********/
 bool SIM800_Check_Cmd(u8 *str);
 u8 	SIM800_Send_Cmd(u8 *cmd,u8 *ack,u16 waittime);

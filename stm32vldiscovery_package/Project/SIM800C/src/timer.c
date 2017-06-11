@@ -96,8 +96,13 @@ void TIM6_DAC_IRQHandler(void)
 			Count_Local_Time_Dev_01 += 1;
 			if(Count_Local_Time_Dev_01 >= 1000)  //这里的1000要根据实际情况进行修改
 			{
+				//计时结束
+				Flag_Local_Time_Dev_01 = 0;
+				//关闭设备(GPIO)
+				//close device必须立刻进行				
+
+				//上报消息给服务器
 				Flag_Local_Time_Dev_01_OK = 0xAA;
-				//关闭设备
 			
 			}
 		}
@@ -129,134 +134,144 @@ void TIM6_DAC_IRQHandler(void)
 			}
 		}
 			
-
-
+		
 		temp = Receive_Data_From_USART();
-		//接收到了SIM800C的信息
-		if(0x01 == temp)	
+		if(Flag_SIM800C_In_Reset == 0xAA)
 		{
-			/*暂时不做处理*/
-			//清零串口3的接收标志变量
-			
-			BSP_Printf("USART3_RX_BUF_SIM800C:%s\r\n",USART3_RX_BUF);
-
-			if(strstr((const char*)USART3_RX_BUF,"CLOSED")!=NULL)
-				Flag_Received_SIM800C_CLOSED = 0xAA;
-			if(strstr((const char*)USART3_RX_BUF,"+PDP: DEACT")!=NULL)
-				Flag_Received_SIM800C_DEACT = 0xAA;
-			//Clear_Usart3();
-
+			BSP_Printf("Reset USART3_RX_BUF_SIM800C:%s\r\n",USART3_RX_BUF);
+			Clear_Usart3();
 		}
-		//接收到了服务器的信息
-		if(0x00 == temp)	
+		else
 		{
-			BSP_Printf("USART3_RX_BUF_服务器:%s\r\n",USART3_RX_BUF);
-			BSP_Printf("Count_Wait_Echo_0X00:%ld\r\n",Count_Wait_Echo);
-			
-			//收到回文，就清零相关标识符
-			Flag_Wait_Echo = 0;
-			Count_Wait_Echo = 0;
-			Total_Wait_Echo = 0;
-			
-			BSP_Printf("need_ack_check: %d, ack: %s\r\n",need_ack_check, atcmd_ack);
-			if(need_ack_check && strstr((const char*)USART3_RX_BUF, atcmd_ack))
-				ack_ok = TRUE;
-				
-			p=strstr((const char*)USART3_RX_BUF,"TRVBP");
-			if((p1=strstr((const char*)p,"#"))!=NULL)
+			//接收到了SIM800C的信息
+			if(0x01 == temp)	
 			{
-				//调用异或和函数来校验回文	
-				//length = strlen((const char *)(USART3_RX_BUF));
-				length = p1 - p +1;
-				//校验数据
-				result = Check_Xor_Sum((char *)(p),length-5);
-				BSP_Printf("result:%d\r\n",result);
+				/*暂时不做处理*/
+				//清零串口3的接收标志变量
 				
-				//取字符串中的校验值
-				p_temp = (p+length-5);
-				offset = 3;
-				for(index = 0;index < offset;index++)
+				BSP_Printf("USART3_RX_BUF_SIM800C:%s\r\n",USART3_RX_BUF);
+				if(strstr((const char*)USART3_RX_BUF,"CLOSED")!=NULL)
+					Flag_Received_SIM800C_CLOSED = 0xAA;
+				if(strstr((const char*)USART3_RX_BUF,"+PDP: DEACT")!=NULL)
+					Flag_Received_SIM800C_DEACT = 0xAA;
+				if(!need_ack_check && strstr((const char*)USART3_RX_BUF, "SEND OK"))
+					Clear_Usart3();			
+				//Clear_Usart3();
+			}
+			//接收到了服务器的信息
+			if(0x00 == temp)	
+			{
+				BSP_Printf("USART3_RX_BUF_服务器:%s\r\n",USART3_RX_BUF);
+				BSP_Printf("Count_Wait_Echo_0X00:%ld\r\n",Count_Wait_Echo);
+				
+				//这个标志根据收到的消息是否是等待的消息来清除
+				//Flag_Wait_Echo = 0;
+				//收到任何服务器消息允许当前等待时间重置
+				Count_Wait_Echo = 0;
+				//Total_Wait_Echo = 0;
+				
+				BSP_Printf("need_ack_check: %d, ack: %s\r\n",need_ack_check, atcmd_ack);
+				//为了防止at cmd 等待SIM800C 回文时被打断，消息在下面就删了
+				//因此在这里帮助判断
+				if(need_ack_check && strstr((const char*)USART3_RX_BUF, atcmd_ack))
+					ack_ok = TRUE;
+					
+				p=strstr((const char*)USART3_RX_BUF,"TRVBP");
+				if((p1=strstr((const char*)p,"#"))!=NULL)
 				{
-					temp_array[index] = p_temp[index];
-				
-				}
-				//校验值转化为数字，并打印
-				result_temp = atoi((const char *)(temp_array));	
-				BSP_Printf("result_temp:%d\r\n",result_temp);			
-				
-				//回文正确
-				if(result == result_temp)
-				{
-					//收到设备登陆信息的回文
-					if(strstr((const char*)p,"TRVBP00"))
+					//调用异或和函数来校验回文	
+					//length = strlen((const char *)(USART3_RX_BUF));
+					length = p1 - p +1;
+					//校验数据
+					result = Check_Xor_Sum((char *)(p),length-5);
+					BSP_Printf("result:%d\r\n",result);
+					
+					//取字符串中的校验值
+					p_temp = (p+length-5);
+					offset = 3;
+					for(index = 0;index < offset;index++)
 					{
-						BSP_Printf("收到设备登陆信息的回文\r\n");
-						Flag_Receive_Login = 0xAA;					
+						temp_array[index] = p_temp[index];
+					
 					}
-					else
+					//校验值转化为数字，并打印
+					result_temp = atoi((const char *)(temp_array));	
+					BSP_Printf("result_temp:%d\r\n",result_temp);			
+					
+					//回文正确
+					if(result == result_temp)
 					{
-						//收到重发命令
-						if(strstr((const char*)p,"TRVBP98"))
+						//收到设备登陆信息的回文
+						if(strstr((const char*)p,"TRVBP00"))
 						{
-							BSP_Printf("收到服务器重发命令\r\n");
-							Flag_Receive_Resend = 0xAA;
+							BSP_Printf("收到设备登陆信息的回文\r\n");
+							Flag_Receive_Login = 0xAA;					
 						}
 						else
 						{
-							//收到心跳回文
-							if(strstr((const char*)p,"TRVBP01"))
+							//收到重发命令
+							if(strstr((const char*)p,"TRVBP98"))
 							{
-								BSP_Printf("收到服务器心跳回文\r\n");
-								Flag_Receive_Heart = 0xAA;
+								BSP_Printf("收到服务器重发命令\r\n");
+								Flag_Receive_Resend = 0xAA;
 							}
 							else
 							{
-								//收到开启设备指令
-								if(strstr((const char*)p,"TRVBP03"))
+								//收到心跳回文
+								if(strstr((const char*)p,"TRVBP01"))
 								{
-									BSP_Printf("收到服务器开启设备指令\r\n");
-									Flag_Receive_Enable = 0xAA;
-									//这里需要判断要打开的设备是不是已经在运行了，
-									//如果是，那就不理这条命令，让服务器通过下一条心跳判断
-									//如果不是，需要保存信息到一个新的buf里面在主循环处理
+									BSP_Printf("收到服务器心跳回文\r\n");
+									Flag_Receive_Heart = 0xAA;
 								}
 								else
 								{
-									//收到运行结束回文
-									if(strstr((const char*)p,"TRVBP05"))
+									//收到开启设备指令
+									if(strstr((const char*)p,"TRVBP03"))
 									{
-										BSP_Printf("收到服务器运行结束回文\r\n");
-										Flag_Receive_Device_OK = 0xAA;
+										BSP_Printf("收到服务器开启设备指令\r\n");
+										Flag_Receive_Enable = 0xAA;
+										//这里需要判断要打开的设备是不是已经在运行了，
+										//如果是，那就不理这条命令，让服务器通过下一条心跳判断
+										//如果不是，需要保存信息到一个新的buf里面在主循环处理
 									}
 									else
 									{
-										BSP_Printf("不存在的服务器指令\r\n");
-										Flag_Check_error = 0xAA;
+										//收到运行结束回文
+										if(strstr((const char*)p,"TRVBP05"))
+										{
+											BSP_Printf("收到服务器运行结束回文\r\n");
+											Flag_Receive_Device_OK = 0xAA;
+										}
+										else
+										{
+											BSP_Printf("不存在的服务器指令\r\n");
+											Flag_Check_error = 0xAA;
+										}
 									}
 								}
 							}
 						}
-					}
-				}   //回文正确
-				//回文异常	
-				if(result != result_temp)
+					}   //回文正确
+					//回文异常	
+					if(result != result_temp)
+					{
+						//置错误重发标志
+						//这里不再判定是那条语句接收出错，因为对错误的内容的进行判定，意义不大，由服务器程序来判定重发的内容
+						//同理，嵌入式程序在接收到服务器的重发请求时，也要判定是要重发那条语句
+						BSP_Printf("服务器指令校验错\r\n");
+						Flag_Check_error = 0xAA;
+						//Clear_Usart3();
+					}			
+				}
+				else
 				{
-					//置错误重发标志
-					//这里不再判定是那条语句接收出错，因为对错误的内容的进行判定，意义不大，由服务器程序来判定重发的内容
-					//同理，嵌入式程序在接收到服务器的重发请求时，也要判定是要重发那条语句
-					BSP_Printf("服务器指令校验错\r\n");
+					BSP_Printf("服务器指令不完整\r\n");
 					Flag_Check_error = 0xAA;
-					//Clear_Usart3();
-				}			
+				}
+				//服务器消息的清空放在这里了
+				Clear_Usart3();	
+				BSP_Printf("current_cmd: %d\r\n", current_cmd);
 			}
-			else
-			{
-				BSP_Printf("服务器指令不完整\r\n");
-				Flag_Check_error = 0xAA;
-			}
-			//服务器消息的清空放在这里了
-			Clear_Usart3();	
-			BSP_Printf("current_cmd: %d\r\n", current_cmd);
 		}
 		TIM_SetCounter(TIM6,0); 
 	}

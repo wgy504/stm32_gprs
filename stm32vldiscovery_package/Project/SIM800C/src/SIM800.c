@@ -52,6 +52,8 @@ char atcmd_ack[LENGTH_ATCMD_ACK] = {0};
 bool need_ack_check = FALSE;
 bool ack_ok = FALSE;
 
+u8  Flag_SIM800C_In_Reset = 0; 
+
 //SIM800发送命令后,检测接收到的应答
 //str:期待的应答结果
 //返回值:0,没有得到期待的应答结果
@@ -123,6 +125,7 @@ u8 SIM800_Send_Cmd(u8 *cmd,u8 *ack,u16 waittime)
 			} 
 			waittime--;
 			//从各个角度避免等待，如果收到了 ack 就直接跳出
+			//主要服务于ack = "SEND OK"
 			if(need_ack_check && ack_ok)
 				break;			
 		}
@@ -446,7 +449,7 @@ u8 SIM800_GPRS_CIPSHUT(void)
 	u8 ret = CMD_ACK_NONE;
 	while(count != 0)
 	{
-		ret = SIM800_Send_Cmd("AT+CIPSHUT","SHUT OK",300);
+		ret = SIM800_Send_Cmd("AT+CIPSHUT","SHUT OK",500);
 		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
 		{
 			delay_ms(2000);
@@ -530,7 +533,7 @@ u8 Link_Server_AT(u8 mode,const char* ipaddr,const char *port)
 
 	while(count != 0)
 	{
-		ret = SIM800_Send_Cmd(p,"CONNECT",500);
+		ret = SIM800_Send_Cmd(p,"CONNECT",1000);
 		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
 		{
 			delay_ms(2000);
@@ -569,7 +572,7 @@ u8 Send_Data_To_Server(char* data)
 	if(ret==CMD_ACK_OK)		//发送数据
 	{ 
 		Clear_Usart3();   //下面这个相当于一个独立的send
-		u3_printf("%s\r\n",data);
+		u3_printf("%s",data);
 		delay_ms(100);
 		need_ack_check = TRUE;
 		ret=SIM800_Send_Cmd((u8*)0x1A,"SEND OK",3000);
@@ -762,13 +765,14 @@ void SIM800_GPRS_Restart(void)
 void SIM800_Powerkey_Restart(void)
 {
 	u8 temp = 0;
+	Flag_SIM800C_In_Reset = 0xAA;
 	SIM800_PWRKEY_OFF();
 	for(temp = 0; temp < 30; temp++)
 	{
 		delay_ms(1000);
 	}
 	SIM800_PWRKEY_ON();
-	
+	Flag_SIM800C_In_Reset = 0;
 }
 
 void SIM800_Power_Restart(void)
@@ -898,15 +902,11 @@ void Get_Login_Data(void)
 	strcat(Login_Buffer,temp_Login_Buffer);
 	Clear_buffer(temp_Login_Buffer,LENGTH_LOGIN);
 	
-	
-	//添加设备状态，暂时固定为0000,
 	//由于读取的是GPIO 高低，因此是设备实时状态
 	for(i = 0; i < strlen(temp05); i++)
 	{
-		temp05[i] = (ON==Device_Power_Status(i))?'1':temp05[i];
-		BSP_Printf("temp05: %d\n", temp05[i]);
-		//if(ON==Device_Power_Status(i))
-			
+		//BSP_Printf("Device[%d]: %d\n", i, Device_Power_Status(i));	
+		temp05[i] = (ON==Device_Power_Status(i))?'1':temp05[i];		
 	}
 	
 	//strcat(Login_Buffer,temp_Login_Buffer);
@@ -1004,6 +1004,7 @@ u8 Send_Login_Data(void)
 		Flag_ACK_Echo = 0x01;
 		//开启等待服务器回文的超时机制
 		Flag_Wait_Echo = 0xAA;
+		Count_Wait_Echo = 0;
 	}
 
 	return ret;
@@ -1190,6 +1191,7 @@ u8 Send_Heart_Data(void)
 		Flag_ACK_Echo = 0x02;
 		//开启等待服务器回文的超时机制
 		Flag_Wait_Echo = 0xAA;
+		Count_Wait_Echo = 0;
 	}
 
 	return ret;
@@ -1340,6 +1342,7 @@ u8 Send_Resend_Data(void)
 		Flag_ACK_Echo = 0x03;
 		//开启等待服务器回文的超时机制
 		Flag_Wait_Echo = 0xAA;
+		Count_Wait_Echo = 0;
 	}
 
 	return ret;
@@ -1515,6 +1518,7 @@ u8 Send_Enable_Data(void)
 		Flag_ACK_Echo = 0x04;    //事实上这条消息不需要超时重发
 		//开启等待服务器回文的超时机制
 		Flag_Wait_Echo = 0xAA;
+		Count_Wait_Echo = 0;
 	}
 
 	return ret;
@@ -1691,6 +1695,7 @@ u8 Send_Device_OK_Data(void)
 		Flag_ACK_Echo = 0x05;
 		//开启等待服务器回文的超时机制
 		Flag_Wait_Echo = 0xAA;
+		Count_Wait_Echo = 0;
 	}
 
 	return ret;

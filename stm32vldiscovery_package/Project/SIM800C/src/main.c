@@ -77,6 +77,9 @@ void Reset_Event(void)
 	Flag_Receive_Enable = 0;
 	Flag_Receive_Device_OK = 0;
 	Flag_ACK_Resend = 0xFF;	
+
+	Flag_Received_SIM800C_CLOSED=0;
+	Flag_Received_SIM800C_DEACT=0;	
 }
 
 int main(void)
@@ -162,22 +165,23 @@ int main(void)
 		//如果收到登陆信息回文，就进入发送心跳包流程
 		if(Flag_Comm_OK == 0xAA)//这个条件是一切消息可以发送的基础，但是不影响定时器
 		{			
-
 			//如果收到开启设备的指令,发送正确接收的回文给服务器，并按照业务指令开启设备
 			if(Flag_Receive_Enable == 0xAA)
 			{
-				//根据当前设备状态进行开启(GPIO)，已经开了的就不处理了
-				//待实现
-				//开启设备并本地计时
-				//if(Flag_Device_Run == 0x01)
-				{
-					//Enable_Device(1);
-					Flag_Local_Time_Dev_01 = 0xAA;    //设备可以开始计时
-				}	
-				
+				Flag_Receive_Enable = 0;
 				//仅当前没有处理其他消息时，才会发送Enable 回文
 				if(current_cmd == CMD_NONE)
 				{
+
+					//根据当前设备状态进行开启(GPIO)，已经开了的就不处理了
+					//待实现
+					//开启设备并本地计时
+					//if(Flag_Device_Run == 0x01)
+					{
+						//Enable_Device(1);
+						Flag_Local_Time_Dev_01 = 0xAA;    //设备可以开始计时
+					}			
+					
 					//发送回文给服务器（这里要有四路设备的状态，并且有设备的已运行时间：Count_Local_Time个50毫秒）
 					if(Send_Enable_Data_To_Server() != CMD_ACK_OK)
 					{
@@ -194,13 +198,10 @@ int main(void)
 					}					
 				}
 			}
-			
+
+			//设备在定时器中已经关闭，这里需要上报关闭消息
 			if(Flag_Local_Time_Dev_01_OK == 0xAA)
-			{
-				Flag_Local_Time_Dev_01_OK = 0;
-				//关闭设备(GPIO)
-				//待实现
-				
+			{	
 				if(current_cmd == CMD_NONE)
 				{
 					//发送设备运行结束命令给服务器
@@ -221,22 +222,42 @@ int main(void)
 			}
 			
 			//如果收到设备运行结束命令的回文
-			if(Flag_Receive_Device_OK == 0xAA)
+			if(Flag_Receive_Device_OK == 0xAA) 
 			{
-				current_cmd = CMD_NONE;	
-				Flag_Receive_Device_OK = 0;
-				//暂时没有要处理的逻辑
+				Flag_Receive_Device_OK = 0;		
+				if(current_cmd == CMD_CLOSE_DEVICE)
+				{
+					//关闭等待服务器回文的超时机制			
+					Flag_ACK_Resend = 0xFF;
+					Flag_ACK_Echo = 0xFF;
+					Flag_Wait_Echo = 0;
+					Count_Wait_Echo = 0;	
+					Total_Wait_Echo = 0;
+					
+					current_cmd = CMD_NONE;	
+					//暂时没有要处理的逻辑
+				}
 			}
 		
 			//如果收到服务器的心跳包回文，开启再次发送心跳包的定时
+			//
+			//if((Flag_Receive_Heart == 0xAA) && (current_cmd == CMD_HB))
 			if(Flag_Receive_Heart == 0xAA)
 			{
 				Flag_Receive_Heart = 0;
 				//收到回文就开启再次发送心跳包的定时
 				Flag_Send_Heart = 0xAA;
+				Count_Send_Heart = 0;
 				
 				if(current_cmd == CMD_HB)       //当前就是在等待心跳回文(是否检测太严格了)
 				{
+					//关闭等待服务器回文的超时机制			
+					Flag_ACK_Resend = 0xFF;
+					Flag_ACK_Echo = 0xFF;
+					Flag_Wait_Echo = 0;
+					Count_Wait_Echo = 0;	
+					Total_Wait_Echo = 0;				
+					
 					current_cmd = CMD_NONE;
 				}
 				Clear_Usart3();
@@ -248,7 +269,7 @@ int main(void)
 				//但只有在当前没有执行任何命令时，才发送心跳包消息，否则继续循环	
 				if(current_cmd == CMD_NONE)
 				{
-					//心跳包的定时时间这个操作一定要做，因此不着急清除这个标志
+					//心跳包的定时时间这个操作一定执行，因此不着急清除这个标志
 					//如果当前有其他操作进行中，等待此操作完成后会进入这里运行
 					Flag_Send_Heart_OK = 0;				
 					Count_Heart += 1;
@@ -270,7 +291,7 @@ int main(void)
 				}
 			}		
 
-			//接收到来至于服务器的重发命令，需要判定要重发的是那条指令
+			//接收到来自服务器的重发命令，需要判定要重发的是那条指令
 			//在本框架程序中，以登录信息的重发为例来给出示例代码
 			if(Flag_Receive_Resend == 0xAA)
 			{
