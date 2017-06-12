@@ -4,6 +4,7 @@
 #include "SIM800.h"
 #include "string.h"  
 #include "stdlib.h"  
+#include "device.h"
 
 //////////////////////////////////////////////
 
@@ -18,6 +19,8 @@ u8 Flag_Need_Reset = 0;
 
 extern u8 Total_Wait_Echo;
 extern u8 current_cmd;
+extern char device_on_cmd_string[];
+
 //////////////////////////////////
 u32 Count_Wait_Echo = 0;         //等待服务器回文的计数值，一个单位代表50ms
 u8  Flag_Wait_Echo = 0;          //需要等待服务器回文时，置位这个变量
@@ -90,7 +93,8 @@ void TIM6_DAC_IRQHandler(void)
 				Flag_Send_Heart_OK = 0xAA;
 			}
 		}
-		
+
+#if 0		
 		if(Flag_Local_Time_Dev_01 == 0xAA)
 		{
 			Count_Local_Time_Dev_01 += 1;
@@ -118,7 +122,38 @@ void TIM6_DAC_IRQHandler(void)
 		{
 			Count_Local_Time_Dev_04 += 1;
 		}
-		
+#else
+		for(index=DEVICE_01; index<DEVICEn; index++)
+			switch(g_device_status[index].power)
+			{
+				case ON:
+					if(g_device_status[index].total==0)
+						g_device_status[index].power = UNKNOWN;
+					else
+					{
+						if(g_device_status[index].passed >= g_device_status[index].total)
+						{
+							g_device_status[index].passed=g_device_status[index].total=0;
+							g_device_status[index].power=OFF;
+							g_device_status[index].need_notif=TRUE;
+							Device_OFF(index);
+						}
+						else
+							g_device_status[index].passed++;
+					}
+					break;
+					
+				case OFF:
+					if(g_device_status[index].total!=0)
+						g_device_status[index].power = UNKNOWN;
+					break;
+					
+				case UNKNOWN:
+				default:
+				break;
+			}
+#endif
+
 		if(Flag_Wait_Echo == 0xAA)
 		{
 			Count_Wait_Echo += 1;
@@ -136,19 +171,17 @@ void TIM6_DAC_IRQHandler(void)
 			
 		
 		temp = Receive_Data_From_USART();
+		//正在Reset 时收到的所有消息都清空
 		if(Flag_SIM800C_In_Reset == 0xAA)
 		{
-			BSP_Printf("Reset USART3_RX_BUF_SIM800C:%s\r\n",USART3_RX_BUF);
+			//BSP_Printf("Reset USART3_RX_BUF_SIM800C:%s\r\n",USART3_RX_BUF);
 			Clear_Usart3();
 		}
 		else
 		{
 			//接收到了SIM800C的信息
 			if(0x01 == temp)	
-			{
-				/*暂时不做处理*/
-				//清零串口3的接收标志变量
-				
+			{				
 				BSP_Printf("USART3_RX_BUF_SIM800C:%s\r\n",USART3_RX_BUF);
 				if(strstr((const char*)USART3_RX_BUF,"CLOSED")!=NULL)
 					Flag_Received_SIM800C_CLOSED = 0xAA;
@@ -202,7 +235,7 @@ void TIM6_DAC_IRQHandler(void)
 					if(result == result_temp)
 					{
 						//收到设备登陆信息的回文
-						if(strstr((const char*)p,"TRVBP00"))
+						if(strstr((const char*)p,"TRVBP00") && (Flag_Receive_Login == 0))
 						{
 							BSP_Printf("收到设备登陆信息的回文\r\n");
 							Flag_Receive_Login = 0xAA;					
@@ -210,7 +243,7 @@ void TIM6_DAC_IRQHandler(void)
 						else
 						{
 							//收到重发命令
-							if(strstr((const char*)p,"TRVBP98"))
+							if(strstr((const char*)p,"TRVBP98") && (Flag_Receive_Resend == 0))
 							{
 								BSP_Printf("收到服务器重发命令\r\n");
 								Flag_Receive_Resend = 0xAA;
@@ -218,7 +251,7 @@ void TIM6_DAC_IRQHandler(void)
 							else
 							{
 								//收到心跳回文
-								if(strstr((const char*)p,"TRVBP01"))
+								if(strstr((const char*)p,"TRVBP01") && (Flag_Receive_Heart == 0))
 								{
 									BSP_Printf("收到服务器心跳回文\r\n");
 									Flag_Receive_Heart = 0xAA;
@@ -226,9 +259,10 @@ void TIM6_DAC_IRQHandler(void)
 								else
 								{
 									//收到开启设备指令
-									if(strstr((const char*)p,"TRVBP03"))
+									if(strstr((const char*)p,"TRVBP03") && (Flag_Receive_Enable == 0))
 									{
 										BSP_Printf("收到服务器开启设备指令\r\n");
+										strncpy(device_on_cmd_string, p, p1 - p +1);
 										Flag_Receive_Enable = 0xAA;
 										//这里需要判断要打开的设备是不是已经在运行了，
 										//如果是，那就不理这条命令，让服务器通过下一条心跳判断
@@ -237,7 +271,7 @@ void TIM6_DAC_IRQHandler(void)
 									else
 									{
 										//收到运行结束回文
-										if(strstr((const char*)p,"TRVBP05"))
+										if(strstr((const char*)p,"TRVBP05") && (Flag_Receive_Device_OK == 0))
 										{
 											BSP_Printf("收到服务器运行结束回文\r\n");
 											Flag_Receive_Device_OK = 0xAA;

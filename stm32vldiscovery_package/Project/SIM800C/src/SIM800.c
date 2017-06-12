@@ -21,8 +21,8 @@ const char *modetbl[2] = {"TCP","UDP"};//连接模式
 //const char  *port = "28106";
 
 //const char  *ipaddr = "42.159.117.91";
-//const char  *ipaddr = "116.62.187.167";
-const char  *ipaddr = "42.159.107.250";
+const char  *ipaddr = "116.62.187.167";
+//const char  *ipaddr = "42.159.107.250";
 const char  *port = "8090";
 
 
@@ -338,7 +338,7 @@ u8 SIM800_GPRS_ON(void)
 	u8 ret = CMD_ACK_NONE;
 	while(count != 0)
 	{
-		ret = SIM800_Send_Cmd("AT+CIPSTART=\"TCP\",\"42.159.107.250\",\"8090\"","CONNECT OK",700);
+		ret = SIM800_Send_Cmd("AT+CIPSTART=\"TCP\",\"116.62.187.167\",\"8090\"","CONNECT OK",700);
 		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
 		{
 			delay_ms(2000);
@@ -568,7 +568,11 @@ u8 Send_Data_To_Server(char* data)
 {
 	u8 ret = CMD_ACK_NONE;
 	BSP_Printf("准备开始发送数据\r\n");
-	ret = SIM800_Send_Cmd("AT+CIPSEND",">",500);
+	if((Flag_Received_SIM800C_CLOSED == 0xAA) || (Flag_Received_SIM800C_DEACT == 0xAA))
+		ret = CMD_ACK_DISCONN;
+	else
+		ret = SIM800_Send_Cmd("AT+CIPSEND",">",500);
+	
 	if(ret==CMD_ACK_OK)		//发送数据
 	{ 
 		Clear_Usart3();   //下面这个相当于一个独立的send
@@ -861,13 +865,13 @@ void Get_Login_Data(void)
 	char temp_Result[3] = {0}; 
 	u8 Result_Validation = 0;
 	u8 i = 0;
-	char temp00[] = "TRVAP00,051,000,SIM800_";
+	char temp00[] = "TRVAP00,059,000,SIM800_";
 	char temp01[] = ",";
 	char temp02[] = "#";
 	char temp03[] = "0";
 	char temp04[] = "00";
 	char temp05[] = "0000,";       //设备运行状态
-	char temp06[] = "00000000,";   //设备运行时间
+	//char temp06[] = "0000000000000000,";   //设备运行时间
 
 	//清零Resend_Buffer
 	for(i = 0; i < LENGTH_LOGIN; i++)
@@ -912,15 +916,11 @@ void Get_Login_Data(void)
 	//strcat(Login_Buffer,temp_Login_Buffer);
 	//Clear_buffer(temp_Login_Buffer,LENGTH_LOGIN);
 	strncat(Login_Buffer,temp05,strlen(temp05));
-	//添加设备运行时间，暂时固定为11223344,
-	//temp06
-	for(i = 0; i < strlen(temp06); i++)
-	{
-		temp_Login_Buffer[i] = temp06[i];
-		//if()
-	}
 	
-	strcat(Login_Buffer,temp_Login_Buffer);
+	//添加设备运行时间
+	Device_Timer_Status(temp_Login_Buffer);
+
+	strcat(Login_Buffer,temp_Login_Buffer);	
 	Clear_buffer(temp_Login_Buffer,LENGTH_LOGIN);
 	
 	//添加校验和
@@ -1067,13 +1067,13 @@ void Get_Heart_Data(void)
 	char temp_Result[3] = {0}; 
 	u8 Result_Validation = 0;
 	u8 i = 0;
-	char temp00[] = "TRVAP01,023,000,";
+	char temp00[] = "TRVAP01,031,000,";
 	char temp01[] = ",";
 	char temp02[] = "#";
 	char temp03[] = "0";
 	char temp04[] = "00";
 	char temp05[] = "0000,";
-	char temp06[] = "11223344,";
+	//char temp06[] = "1122334455667788,";
 	
 
 	//清零Resend_Buffer
@@ -1090,23 +1090,20 @@ void Get_Heart_Data(void)
 	}
 	strcat(Heart_Buffer,temp_Heart_Buffer);
 	Clear_buffer(temp_Heart_Buffer,LENGTH_HEART);
-	
-		//添加设备状态，暂时固定为0000,
-	//temp05
+
+	//由于读取的是GPIO 高低，因此是设备实时状态
 	for(i = 0; i < strlen(temp05); i++)
 	{
-		temp_Heart_Buffer[i] = temp05[i];
+		//BSP_Printf("Device[%d]: %d\n", i, Device_Power_Status(i));	
+		temp05[i] = (ON==Device_Power_Status(i))?'1':temp05[i];		
 	}
 	
-	strcat(Heart_Buffer,temp_Heart_Buffer);
-	Clear_buffer(temp_Heart_Buffer,LENGTH_HEART);
+	//strcat(Login_Buffer,temp_Login_Buffer);
+	//Clear_buffer(temp_Login_Buffer,LENGTH_LOGIN);
+	strncat(Heart_Buffer,temp05,strlen(temp05));
 	
-	//添加设备运行时间，暂时固定为1234,
-	//temp06
-	for(i = 0; i < strlen(temp06); i++)
-	{
-		temp_Heart_Buffer[i] = temp06[i];
-	}
+	//添加设备运行时间
+	Device_Timer_Status(temp_Heart_Buffer);
 	
 	strcat(Heart_Buffer,temp_Heart_Buffer);
 	Clear_buffer(temp_Heart_Buffer,LENGTH_HEART);
@@ -1392,13 +1389,13 @@ void Get_Enable_Data(void)
 	char temp_Result[3] = {0}; 
 	u8 Result_Validation = 0;
 	u8 i = 0;
-	char temp00[] = "TRVAP03,019,";
+	char temp00[] = "TRVAP03,027,";
 	char temp01[] = ",";
 	char temp02[] = "#";
 	char temp03[] = "0";
 	char temp04[] = "00";
 	char temp05[] = "0000,";
-	char temp06[] = "11223344,";
+	//char temp06[] = "1122334455667788,";
 	
 
 	//清零Resend_Buffer
@@ -1416,22 +1413,19 @@ void Get_Enable_Data(void)
 	strcat(Enbale_Buffer,temp_Enable_Buffer);
 	Clear_buffer(temp_Enable_Buffer,LENGTH_ENABLE);
 	
-		//添加设备状态，暂时固定为0000,
-	//temp05
+	//由于读取的是GPIO 高低，因此是设备实时状态
 	for(i = 0; i < strlen(temp05); i++)
 	{
-		temp_Enable_Buffer[i] = temp05[i];
+		//BSP_Printf("Device[%d]: %d\n", i, Device_Power_Status(i));	
+		temp05[i] = (ON==Device_Power_Status(i))?'1':temp05[i];		
 	}
 	
-	strcat(Enbale_Buffer,temp_Enable_Buffer);
-	Clear_buffer(temp_Enable_Buffer,LENGTH_ENABLE);
+	//strcat(Login_Buffer,temp_Login_Buffer);
+	//Clear_buffer(temp_Login_Buffer,LENGTH_LOGIN);
+	strncat(Enbale_Buffer,temp05,strlen(temp05));
 	
-	//添加设备运行时间，暂时固定为1234,
-	//temp06
-	for(i = 0; i < strlen(temp06); i++)
-	{
-		temp_Enable_Buffer[i] = temp06[i];
-	}
+	//添加设备运行时间
+	Device_Timer_Status(temp_Enable_Buffer);
 	
 	strcat(Enbale_Buffer,temp_Enable_Buffer);
 	Clear_buffer(temp_Enable_Buffer,LENGTH_ENABLE);
@@ -1569,13 +1563,13 @@ void Get_Device_OK_Data(void)
 	char temp_Result[3] = {0}; 
 	u8 Result_Validation = 0;
 	u8 i = 0;
-	char temp00[] = "TRVAP05,019,";
+	char temp00[] = "TRVAP05,027,";
 	char temp01[] = ",";
 	char temp02[] = "#";
 	char temp03[] = "0";
 	char temp04[] = "00";
 	char temp05[] = "0000,";
-	char temp06[] = "11223344,";
+	//char temp06[] = "1122334455667788,";
 	
 
 	//清零Resend_Buffer
@@ -1593,22 +1587,19 @@ void Get_Device_OK_Data(void)
 	strcat(Device_OK_Buffer,temp_Device_OK_Buffer);
 	Clear_buffer(temp_Device_OK_Buffer,LENGTH_DEVICE_OK);
 	
-		//添加设备状态，暂时固定为0000,
-	//temp05
+	//由于读取的是GPIO 高低，因此是设备实时状态
 	for(i = 0; i < strlen(temp05); i++)
 	{
-		temp_Device_OK_Buffer[i] = temp05[i];
+		//BSP_Printf("Device[%d]: %d\n", i, Device_Power_Status(i));	
+		temp05[i] = (ON==Device_Power_Status(i))?'1':temp05[i];		
 	}
 	
-	strcat(Device_OK_Buffer,temp_Device_OK_Buffer);
-	Clear_buffer(temp_Device_OK_Buffer,LENGTH_DEVICE_OK);
+	//strcat(Login_Buffer,temp_Login_Buffer);
+	//Clear_buffer(temp_Login_Buffer,LENGTH_LOGIN);
+	strncat(Device_OK_Buffer,temp05,strlen(temp05));
 	
-	//添加设备运行时间，暂时固定为1234,
-	//temp06
-	for(i = 0; i < strlen(temp06); i++)
-	{
-		temp_Device_OK_Buffer[i] = temp06[i];
-	}
+	//添加设备运行时间
+	Device_Timer_Status(temp_Device_OK_Buffer);
 	
 	strcat(Device_OK_Buffer,temp_Device_OK_Buffer);
 	Clear_buffer(temp_Device_OK_Buffer,LENGTH_DEVICE_OK);
@@ -1735,13 +1726,6 @@ u8 Send_Device_OK_Data_To_Server(void)
 	current_cmd = CMD_CLOSE_DEVICE;
 	ret = Send_Device_OK_Data_Normal();
 	return ret;
-}
-
-
-void Enable_Device(u8 mode)
-{
-	;
-
 }
 
 void Clear_buffer(char* buffer,u16 length)

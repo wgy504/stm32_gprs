@@ -12,7 +12,7 @@
 #define TIME_HEART 1
 #define NUMBER_TIME_HEART_50_MS (TIME_HEART*60*1000/50)  	  //1MIN
 
-
+#define NUMBER_TIMER_1_MINUTE       1200  //60*1000/50 
 
 #define OFFSET_Connec 30                      	//TRVBP00,000,UBICOM_AUTH_INFOR,0001,070,X,# 
 #define OFFSET_TDS    35                      	//TRVBP00,000,UBICOM_AUTH_INFOR,0001,070,X,# 

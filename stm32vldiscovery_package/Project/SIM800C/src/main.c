@@ -53,6 +53,9 @@ TIM4                   3                      1
 u8 result_Send_Data = 0xAA;
 u8 count_Send_Data = 0x00;
 u8 current_cmd=0;
+
+char device_on_cmd_string[100]={0};
+
 #define TOTAL_SEND_DATA 3
 #define TOTAL_WAIT_ECO  3        
 u8 Total_Wait_Echo  =  0;
@@ -86,6 +89,8 @@ int main(void)
 {
 	//u8 temp = 0x00;
 	u32 Count_Heart = 0;
+	u8 i;
+	bool need_notif=FALSE;
 	//设置中断优先级分组为组2：2位抢占优先级，2位响应优先级
 	NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2); 
 	/* Enable GPIOx Clock */
@@ -115,11 +120,12 @@ int main(void)
 	BSP_Printf("SIM800C开机完成\r\n");
 	
 	Device_Init();
-	Device_ON(DEVICE_01);
-	Device_ON(DEVICE_03);
-//	Device_OFF(DEVICE_02);
-//	Is_Device_On(DEVICE_03);
-	
+	//Device_ON(DEVICE_01);
+	//Device_ON(DEVICE_04);
+	for(i=DEVICE_01; i<DEVICEn; i++)
+	{
+		BSP_Printf("Power[%d]: %d\n", i, Device_Power_Status(i));
+	}
 	
 	//连接服务器失败，闪烁一颗LED作为提醒，后期用短信来替换
 	if(SIM800_Link_Server() != CMD_ACK_OK)
@@ -168,19 +174,48 @@ int main(void)
 			//如果收到开启设备的指令,发送正确接收的回文给服务器，并按照业务指令开启设备
 			if(Flag_Receive_Enable == 0xAA)
 			{
-				Flag_Receive_Enable = 0;
-				//仅当前没有处理其他消息时，才会发送Enable 回文
+				//仅当前没有处理其他消息时，才能操作设备并发送回文
 				if(current_cmd == CMD_NONE)
 				{
-
+					char *msg_id, *device, *interfaces, *periods;
+					bool interface_on[DEVICEn]={FALSE};
+					int period_on[DEVICEn]={0};
 					//根据当前设备状态进行开启(GPIO)，已经开了的就不处理了
 					//待实现
 					//开启设备并本地计时
-					//if(Flag_Device_Run == 0x01)
-					{
-						//Enable_Device(1);
-						Flag_Local_Time_Dev_01 = 0xAA;    //设备可以开始计时
-					}			
+					msg_id = strtok(device_on_cmd_string, ",");
+					if(msg_id)
+						BSP_Printf("msg_id: %s\n", msg_id);
+
+					device = strtok(NULL, ",");
+					if(device)
+						BSP_Printf("device: %s\n", device);	
+					
+					interfaces = strtok(NULL, ",");
+					if(interfaces)
+						BSP_Printf("ports: %s\n", interfaces);
+
+					for(i=DEVICE_01; i<DEVICEn; i++)
+						interface_on[i]=(interfaces[i]=='1')?TRUE:FALSE;
+						
+					periods = strtok(NULL, ",");
+					if(periods)
+						BSP_Printf("periods: %s\n", periods);	
+
+					sscanf(periods, "%02d%02d%02d%02d,", &period_on[DEVICE_01], 
+						&period_on[DEVICE_02], &period_on[DEVICE_03], &period_on[DEVICE_04]);
+
+					for(i=DEVICE_01; i<DEVICEn; i++)					
+						if(interface_on[i] && (g_device_status[i].power == OFF))
+						{
+							g_device_status[i].total = period_on[i] * NUMBER_TIMER_1_MINUTE;
+							g_device_status[i].passed = 0;
+							g_device_status[i].power = ON;		
+							g_device_status[i].need_notif = FALSE;
+							Device_ON(i);
+							BSP_Printf("Port[%d]: %d\n", i, g_device_status[i].total);	
+							//Flag_Local_Time_Dev_01 = 0xAA;    //设备可以开始计时
+						}			
 					
 					//发送回文给服务器（这里要有四路设备的状态，并且有设备的已运行时间：Count_Local_Time个50毫秒）
 					if(Send_Enable_Data_To_Server() != CMD_ACK_OK)
@@ -197,10 +232,19 @@ int main(void)
 						//Clear_Usart3();
 					}					
 				}
+				memset(device_on_cmd_string, 0, sizeof(device_on_cmd_string));
+				Flag_Receive_Enable = 0;				
 			}
 
 			//设备在定时器中已经关闭，这里需要上报关闭消息
-			if(Flag_Local_Time_Dev_01_OK == 0xAA)
+			for(i=DEVICE_01; i<DEVICEn; i++)
+			{
+				if(g_device_status[i].need_notif)  //if(Flag_Local_Time_Dev_01_OK == 0xAA)
+					need_notif = TRUE;
+
+				g_device_status[i].need_notif = FALSE;
+			}
+			if(need_notif)
 			{	
 				if(current_cmd == CMD_NONE)
 				{
@@ -219,12 +263,11 @@ int main(void)
 						//Clear_Usart3();
 					}					
 				}
-			}
+			}				
 			
 			//如果收到设备运行结束命令的回文
 			if(Flag_Receive_Device_OK == 0xAA) 
-			{
-				Flag_Receive_Device_OK = 0;		
+			{	
 				if(current_cmd == CMD_CLOSE_DEVICE)
 				{
 					//关闭等待服务器回文的超时机制			
@@ -237,18 +280,14 @@ int main(void)
 					current_cmd = CMD_NONE;	
 					//暂时没有要处理的逻辑
 				}
+				Flag_Receive_Device_OK = 0;					
 			}
 		
 			//如果收到服务器的心跳包回文，开启再次发送心跳包的定时
 			//
 			//if((Flag_Receive_Heart == 0xAA) && (current_cmd == CMD_HB))
 			if(Flag_Receive_Heart == 0xAA)
-			{
-				Flag_Receive_Heart = 0;
-				//收到回文就开启再次发送心跳包的定时
-				Flag_Send_Heart = 0xAA;
-				Count_Send_Heart = 0;
-				
+			{				
 				if(current_cmd == CMD_HB)       //当前就是在等待心跳回文(是否检测太严格了)
 				{
 					//关闭等待服务器回文的超时机制			
@@ -260,6 +299,10 @@ int main(void)
 					
 					current_cmd = CMD_NONE;
 				}
+				Flag_Receive_Heart = 0;
+				//收到回文就开启再次发送心跳包的定时
+				Flag_Send_Heart = 0xAA;
+				Count_Send_Heart = 0;				
 				Clear_Usart3();
 			}
 
@@ -270,8 +313,7 @@ int main(void)
 				if(current_cmd == CMD_NONE)
 				{
 					//心跳包的定时时间这个操作一定执行，因此不着急清除这个标志
-					//如果当前有其他操作进行中，等待此操作完成后会进入这里运行
-					Flag_Send_Heart_OK = 0;				
+					//如果当前有其他操作进行中，等待此操作完成后会进入这里运行	
 					Count_Heart += 1;
 					BSP_Printf("第%ld次发送心跳包\r\n",Count_Heart);
 					BSP_Printf("一分钟的心跳包间隔到,再次发送心跳包\r\n");				
@@ -288,6 +330,7 @@ int main(void)
 						BSP_Printf("SIM800C发送心跳包给服务器完成\r\n");
 						//Clear_Usart3();
 					}
+					Flag_Send_Heart_OK = 0;			
 				}
 			}		
 
@@ -295,7 +338,6 @@ int main(void)
 			//在本框架程序中，以登录信息的重发为例来给出示例代码
 			if(Flag_Receive_Resend == 0xAA)
 			{
-				Flag_Receive_Resend = 0;
 				//根据Flag_ACK_Resend的值来确定要重发的是那条命令
 				if(Flag_ACK_Resend == 0x02)
 				{
@@ -350,12 +392,12 @@ int main(void)
 						//Clear_Usart3();
 					}
 				}	
+				Flag_Receive_Resend = 0;				
 			}
 			
 			if(Flag_Check_error == 0xAA)
 			{
 				//校验出错，要求服务器重发
-				Flag_Check_error = 0;
 				if(Send_Resend_Data_To_Server() != CMD_ACK_OK)
 				{
 					BSP_Printf("SIM800C发送重发命令给服务器失败，请检查\r\n");
@@ -369,13 +411,13 @@ int main(void)
 					BSP_Printf("SIM800C发送重发命令给服务器完成\r\n");
 					//Clear_Usart3();
 				}
+				Flag_Check_error = 0;				
 			}
 
 			//设备发送信息给服务器后等待回文，有个最长等待时间，如果超时，还没有收到服务器的回文,就要进行若干次的重新发送
 			if(Flag_Time_Out_Comm == 0xAA)
 			{
 				BSP_Printf("1分钟的等待服务器回文超时\r\n");
-				Flag_Time_Out_Comm = 0;
 				Total_Wait_Echo	+= 1;	
 				//根据变量Flag_ACK_Echo的值来判定要重新发送的命令
 				if(Flag_ACK_Echo == 0x02)
@@ -432,7 +474,8 @@ int main(void)
 						BSP_Printf("1分钟的等待服务器回文超时，发送设备运行结束命令成功\r\n");
 						//Clear_Usart3();
 					}
-				}			
+				}		
+				Flag_Time_Out_Comm = 0;				
 			}
 			
 			//若干次重发后，仍然收不到服务器回文，重启GPRS		
@@ -452,7 +495,6 @@ int main(void)
 		{
 			if(Flag_Receive_Login == 0xAA)  //收到login 回文
 			{
-				Flag_Receive_Login = 0;			
 				if(current_cmd == CMD_LOGIN)   //当前设备就是在等待login回文状态
 				{
 					//收到了要等待的回文，需要清除resend/echo 标志了吧?
@@ -476,11 +518,11 @@ int main(void)
 						//Clear_Usart3();
 					}	
 				}
+				Flag_Receive_Login = 0;							
 			}		
 			
 			if(Flag_Receive_Resend == 0xAA)
 			{
-				Flag_Receive_Resend = 0;
 				//未连接时仅有login消息的重发处理
 				//这里没有考虑服务器要求重发Resend 消息。。。感觉没啥必要
 				if(Flag_ACK_Resend == 0x01)
@@ -501,12 +543,12 @@ int main(void)
 						//Clear_Usart3();
 					}
 				}
+				Flag_Receive_Resend = 0;				
 			}
 			
 			if(Flag_Check_error == 0xAA)
 			{
 				//校验出错，要求服务器重发
-				Flag_Check_error = 0;
 				if(Send_Resend_Data_To_Server() != CMD_ACK_OK)
 				{
 					BSP_Printf("SIM800C发送重发命令给服务器失败，请检查\r\n");
@@ -520,12 +562,12 @@ int main(void)
 					BSP_Printf("SIM800C发送重发命令给服务器完成\r\n");
 					//Clear_Usart3();
 				}
+				Flag_Check_error = 0;				
 			}			
 
 			if(Flag_Time_Out_Comm == 0xAA)
 			{
 				BSP_Printf("1分钟的等待服务器回文超时\r\n");
-				Flag_Time_Out_Comm = 0;
 				Total_Wait_Echo	+= 1;	
 				//根据变量Flag_ACK_Echo的值来判定要重新发送的命令
 				if(Flag_ACK_Echo == 0x01)
@@ -568,6 +610,7 @@ int main(void)
 						//Clear_Usart3();
 					}
 				}
+				Flag_Time_Out_Comm = 0;				
 			}
 			
 			//若干次重发后，仍然收不到服务器回文，重启GPRS		
