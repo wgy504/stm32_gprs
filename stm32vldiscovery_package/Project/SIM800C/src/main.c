@@ -69,6 +69,7 @@ void Reset_Event(void)
 	Flag_Time_Out_Comm = 0; 
 	Flag_Receive_Login = 0; 	
 	Flag_ACK_Echo = 0xFF;	
+	Flag_Wait_Echo = 0;	
 	//清除心跳包标志
 	Flag_Send_Heart = 0;
 	Flag_Send_Heart_OK = 0;
@@ -263,6 +264,7 @@ int main(void)
 						//Clear_Usart3();
 					}					
 				}
+				need_notif = FALSE;
 			}				
 			
 			//如果收到设备运行结束命令的回文

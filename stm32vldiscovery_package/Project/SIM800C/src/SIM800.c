@@ -83,7 +83,15 @@ u8 SIM800_Check_Cmd(u8 *str)
 u8 SIM800_Send_Cmd(u8 *cmd,u8 *ack,u16 waittime)
 {
 	u8 res = CMD_ACK_NONE; 
-	Clear_Usart3();	
+	Clear_Usart3();
+	
+	if(ack!=NULL)
+	{
+		ack_ok = FALSE;
+		memset(atcmd_ack, 0, sizeof(atcmd_ack));
+		strcpy(atcmd_ack, (char *)ack);
+	}	
+	
 	if((u32)cmd <= 0XFF)
 	{
 		while((USART3->SR&0X40)==0);//等待上一次数据发送完成  
@@ -91,12 +99,6 @@ u8 SIM800_Send_Cmd(u8 *cmd,u8 *ack,u16 waittime)
 	}
 	else 
 	{
-		if(ack!=NULL)
-		{
-			ack_ok = FALSE;
-			memset(atcmd_ack, 0, sizeof(atcmd_ack));
-			strcpy(atcmd_ack, (char *)ack);
-		}
 		u3_printf("%s\r\n",cmd);//发送命令
 	}
 
@@ -1509,10 +1511,10 @@ u8 Send_Enable_Data(void)
 	if(ret == CMD_ACK_OK)
 	{
 		Flag_ACK_Resend = 0x04;
-		Flag_ACK_Echo = 0x04;    //事实上这条消息不需要超时重发
+		//Flag_ACK_Echo = 0x04;    //事实上这条消息不需要超时重发
 		//开启等待服务器回文的超时机制
-		Flag_Wait_Echo = 0xAA;
-		Count_Wait_Echo = 0;
+		//Flag_Wait_Echo = 0xAA;
+		//Count_Wait_Echo = 0;
 	}
 
 	return ret;

@@ -24,9 +24,12 @@ void Device_Init(void)
 {
  
  GPIO_InitTypeDef  GPIO_InitStructure;
- 	
+#if TEST 	
  RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOF, ENABLE);	 
-	
+#else
+ RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);	
+#endif
+
  GPIO_InitStructure.GPIO_Pin = DEVICE1_PIN;				 
  GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP; 		
  GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;		 
@@ -55,16 +58,20 @@ void Device_Init(void)
 
 void Device_OFF(u8 Device)
 {
- 			
- GPIO_SetBits(GPIO_PORT[Device], GPIO_PIN[Device]);						
-
+#if TEST
+ GPIO_SetBits(GPIO_PORT[Device], GPIO_PIN[Device]);	
+#else
+ GPIO_ResetBits(GPIO_PORT[Device], GPIO_PIN[Device]);						
+#endif
 }
 
 void Device_ON(u8 Device)
 {
- 			
- GPIO_ResetBits(GPIO_PORT[Device], GPIO_PIN[Device]);						
-
+#if TEST
+ GPIO_ResetBits(GPIO_PORT[Device], GPIO_PIN[Device]);	
+#else
+ GPIO_SetBits(GPIO_PORT[Device], GPIO_PIN[Device]);						
+#endif
 }
 
 
@@ -85,11 +92,18 @@ Device_Power Device_Power_Status(u8 Device)
 	
 	if ((GPIO_PORT[Device]->ODR & GPIO_PIN[Device]) != 0)
 	{
+#if TEST
 		ret = OFF;
+#else
+		ret = ON;
+#endif
 	}
 	else
+#if TEST		
 		ret = ON;
-	
+#else
+		ret = OFF;
+#endif
 	return ret;
 
 }
