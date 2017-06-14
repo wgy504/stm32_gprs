@@ -772,6 +772,7 @@ void SIM800_Powerkey_Restart(void)
 {
 	u8 temp = 0;
 	Flag_SIM800C_In_Reset = 0xAA;
+	BSP_Printf("Powerkey Restart\r\n");
 	SIM800_PWRKEY_OFF();
 	for(temp = 0; temp < 30; temp++)
 	{
@@ -837,7 +838,7 @@ u8 SIM800_Link_Server_Powerkey(void)
 		count--;
 	}
 
-	return CMD_ACK_OK;
+	return ret;
 
 }
 u8 SIM800_Link_Server(void)
