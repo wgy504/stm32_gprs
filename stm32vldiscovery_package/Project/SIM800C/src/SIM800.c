@@ -8,9 +8,6 @@
 #include <stdlib.h>
 #include "device.h"
 
-extern u8 result_Send_Data;
-extern u8 count_Send_Data;
-extern u8 current_cmd;
 #define TOTAL_SEND_DATA 3
 #define COUNT_AT 10
 
@@ -48,50 +45,25 @@ char Enbale_Buffer[LENGTH_ENABLE] = {0};
 //存储业务执行完成指令的数组
 char Device_OK_Buffer[LENGTH_DEVICE_OK] = {0};
 
-char atcmd_ack[LENGTH_ATCMD_ACK] = {0};
-bool need_ack_check = FALSE;
-bool ack_ok = FALSE;
-
-u8  Flag_SIM800C_In_Reset = 0; 
-
-//SIM800发送命令后,检测接收到的应答
-//str:期待的应答结果
-//返回值:0,没有得到期待的应答结果
-//其他,期待应答结果的位置(str的位置)
-u8 SIM800_Check_Cmd(u8 *str)
-{
-	u8 ret = CMD_ACK_NONE;
-	if(USART3_RX_STA&0X8000)		//接收到一次数据了
-	{ 
-		ret = CMD_ACK_NOK;
-		USART3_RX_BUF[USART3_RX_STA&0X7FFF] = 0;//添加结束符
-		BSP_Printf("recv: %s\r\n", USART3_RX_BUF);
-		if(strstr((const char*)USART3_RX_BUF,(const char*)str)!=NULL)   //必须首先进行是否是正确回文判断
-			ret = CMD_ACK_OK;
-		else if((strstr((const char*)USART3_RX_BUF,"CLOSED")!=NULL) || (strstr((const char*)USART3_RX_BUF,"+PDP: DEACT")!=NULL))
-			ret = CMD_ACK_DISCONN;
-	} 
-	return ret;
-}
+t_DEV dev={0};
+extern void Reset_Device_Status(u8 status);
 
 //SIM800发送命令
 //cmd:发送的命令字符串(不需要添加回车了),当cmd<0XFF的时候,发送数字(比如发送0X1A),大于的时候发送字符串.
 //ack:期待的应答结果,如果为空,则表示不需要等待应答
 //waittime:等待时间(单位:10ms)
-//返回值:0,发送成功(得到了期待的应答结果)
-//       1,发送失败
 u8 SIM800_Send_Cmd(u8 *cmd,u8 *ack,u16 waittime)
 {
-	u8 res = CMD_ACK_NONE; 
-	Clear_Usart3();
+	u8 ret = CMD_ACK_NONE; 
 	
 	if(ack!=NULL)
 	{
-		ack_ok = FALSE;
-		memset(atcmd_ack, 0, sizeof(atcmd_ack));
-		strcpy(atcmd_ack, (char *)ack);
+		dev.msg_expect |= MSG_DEV_ACK;
+		memset(dev.atcmd_ack, 0, sizeof(dev.atcmd_ack));
+		strcpy(dev.atcmd_ack, (char *)ack);
 	}	
-	
+
+	//Clear_Usart3();	  //放下面还是放在这里合适
 	if((u32)cmd <= 0XFF)
 	{
 		while((USART3->SR&0X40)==0);//等待上一次数据发送完成  
@@ -102,54 +74,32 @@ u8 SIM800_Send_Cmd(u8 *cmd,u8 *ack,u16 waittime)
 		u3_printf("%s\r\n",cmd);//发送命令
 	}
 
+	//Clear_Usart3();	//放上面还是放在这里合适
 	if(ack&&waittime)		//需要等待应答
 	{
 		while(waittime!=0)	//等待倒计时
 		{ 
-			delay_ms(10);				
-			if(USART3_RX_STA&0X8000)//接收到期待的应答结果
+			delay_ms(10);	
+			if(dev.msg_recv & MSG_DEV_RESET)
 			{
-				//得到了有效的回文信息，
-				res = SIM800_Check_Cmd(ack);
-				if((res == CMD_ACK_OK) || (res == CMD_ACK_DISCONN))   //收到正常的回文，或者断线都不需要再重试了
-				{
-					//后面的函数可能要处理得到的回文，所以这里不能调用函数Clear_Usart3
-					break;
-				} 
-				//没有得到有效的回文信息，清零串口3，继续下次的接收
-				else  //res == CMD_ACK_NOK
-				{
-					if(need_ack_check && ack_ok)
-						break;
-					//这里有可能清空服务器回文?	
-					Clear_Usart3();
-				}
-			} 
-			waittime--;
-			//从各个角度避免等待，如果收到了 ack 就直接跳出
-			//主要服务于ack = "SEND OK"
-			if(need_ack_check && ack_ok)
-				break;			
-		}
-
-		//如果在TIM6里发现有at回文
-		if(need_ack_check && ack_ok)
-			res = CMD_ACK_OK;
-		
-		if(waittime == 0)
-		{
-			//AT指令已经发出，只是在等待时间内，USART3_RX_STA没有置位或者得到的数据不包含ack
-			//返回的是CMD_ACK_NONE 或者CMD_ACK_NOK
-			Clear_Usart3();
+				ret = CMD_ACK_DISCONN;
+				break;
+			}
+			else if((dev.msg_recv & MSG_DEV_ACK) || (dev.status == CMD_IDLE))
+			{
+				ret = CMD_ACK_OK;
+				dev.msg_recv &= ~MSG_DEV_ACK;
+				break;
+			}				
+			waittime--;	
 		}
 	}
-	
 	else   //不需要等待应答,这里暂时不添加相关的处理代码
 	{
 		;
 	
 	}
-	return res;
+	return ret;
 } 
 
 
@@ -161,7 +111,7 @@ u8 Check_Module(void)
 	while(count != 0)
 	{
 		ret = SIM800_Send_Cmd("AT","OK",100);
-		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))   //只有这两种情况才有重复的意义
+		if(ret == CMD_ACK_NONE) 
 		{
 			delay_ms(2000);
 		}
@@ -171,7 +121,7 @@ u8 Check_Module(void)
 		count--;
 	}
 	
-	Clear_Usart3();	
+	//Clear_Usart3();	
 	return ret;
 	
 }
@@ -184,7 +134,7 @@ u8 Disable_Echo(void)
 	while(count != 0)
 	{
 		ret = SIM800_Send_Cmd("ATE0","OK",200);
-		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
+		if(ret == CMD_ACK_NONE)
 		{
 			delay_ms(2000);
 		}
@@ -194,7 +144,7 @@ u8 Disable_Echo(void)
 		count--;
 	}
 	
-	Clear_Usart3();	
+	//Clear_Usart3();	
 	return ret;
 	
 }
@@ -207,7 +157,7 @@ u8 Check_SIM_Card(void)
 	while(count != 0)
 	{
 		ret = SIM800_Send_Cmd("AT+CPIN?","OK",200);
-		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
+		if(ret == CMD_ACK_NONE)
 		{
 			delay_ms(2000);
 		}
@@ -217,7 +167,7 @@ u8 Check_SIM_Card(void)
 		count--;
 	}
 	
-	Clear_Usart3();	
+	//Clear_Usart3();	
 	return ret;
 }
 
@@ -228,7 +178,7 @@ u8 Check_OPS(void)
 	while(count != 0)
 	{
 		ret = SIM800_Send_Cmd("AT+COPS?","CHINA",500);
-		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
+		if(ret == CMD_ACK_NONE)
 		{
 			delay_ms(2000);
 		}
@@ -238,7 +188,7 @@ u8 Check_OPS(void)
 		count--;
 	}
 	
-	Clear_Usart3();	
+	//Clear_Usart3();	
 	return ret;
 }
 
@@ -259,7 +209,7 @@ u8 Check_CSQ(void)
 		while(count != 0)
 		{
 			ret = SIM800_Send_Cmd("AT+CSQ","+CSQ:",200);
-			if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
+			if(ret == CMD_ACK_NONE)
 			{
 				delay_ms(2000);
 			}
@@ -272,7 +222,7 @@ u8 Check_CSQ(void)
 		if(ret == CMD_ACK_OK)
 		{
 			//AT指令已经指令完成，下面对返回值进行处理
-			p1=(u8*)strstr((const char*)(USART3_RX_BUF),":");
+			p1=(u8*)strstr((const char*)(dev.usart_data),":");
 			p2=(u8*)strstr((const char*)(p1),",");
 			p2[0]=0;//加入结束符
 			signal = atoi((const char *)(p1+2));
@@ -281,7 +231,6 @@ u8 Check_CSQ(void)
 			BSP_Printf("%s\r\n",p);
 		}
 		//AT指令的回文已经处理完成，清零
-		Clear_Usart3();
 	}	
 	return ret;
 }
@@ -298,14 +247,14 @@ u8 Check_CSQ(void)
 u8 Get_ICCID(void)
 {
 	u8 index = 0;
-	u8 *p_temp = NULL;
+	char *p_temp = NULL;
 	u8 count = COUNT_AT;
 	u8 ret = CMD_ACK_NONE;
 	
 	while(count != 0)
 	{
 		ret = SIM800_Send_Cmd("AT+CCID","OK",200);
-		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
+		if(ret == CMD_ACK_NONE)
 		{
 			delay_ms(2000);
 		}
@@ -318,9 +267,7 @@ u8 Get_ICCID(void)
 	if(ret == CMD_ACK_OK)	
 	{
 		//AT指令已经指令完成，下面对返回值进行处理
-		//BSP_Printf("CCID:%s\r\n",USART3_RX_BUF);
-
-		p_temp = USART3_RX_BUF;
+		p_temp = dev.usart_data;
 		//提取ICCID信息到全局变量ICCID_BUF
 		for(index = 0;index < LENGTH_ICCID_BUF;index++)
 		{
@@ -329,9 +276,8 @@ u8 Get_ICCID(void)
 		//BSP_Printf("ICCID_BUF:%s\r\n",ICCID_BUF);
 	}
 	//AT指令的回文已经处理完成，清零
-	Clear_Usart3();
+	//Clear_Usart3();
 	return ret;
-
 }
 
 u8 SIM800_GPRS_ON(void)
@@ -341,7 +287,7 @@ u8 SIM800_GPRS_ON(void)
 	while(count != 0)
 	{
 		ret = SIM800_Send_Cmd("AT+CIPSTART=\"TCP\",\"116.62.187.167\",\"8090\"","CONNECT OK",700);
-		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
+		if(ret == CMD_ACK_NONE)
 		{
 			delay_ms(2000);
 		}
@@ -351,7 +297,7 @@ u8 SIM800_GPRS_ON(void)
 		count--;
 	}
 	
-	Clear_Usart3();	
+	//Clear_Usart3();	
 	return ret;
 
 }
@@ -364,7 +310,7 @@ u8 SIM800_GPRS_OFF(void)
 	while(count != 0)
 	{
 		ret = SIM800_Send_Cmd("AT+CIPCLOSE=1","CLOSE OK",500);
-		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
+		if(ret == CMD_ACK_NONE)
 		{
 			delay_ms(2000);
 		}
@@ -374,7 +320,7 @@ u8 SIM800_GPRS_OFF(void)
 		count--;
 	}
 	
-	Clear_Usart3();	
+	//Clear_Usart3();	
 	return ret;
 }
 
@@ -386,7 +332,7 @@ u8 SIM800_GPRS_Adhere(void)
 	while(count != 0)
 	{
 		ret = SIM800_Send_Cmd("AT+CGATT=1","OK",300);
-		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
+		if(ret == CMD_ACK_NONE)
 		{
 			delay_ms(2000);
 		}
@@ -396,7 +342,7 @@ u8 SIM800_GPRS_Adhere(void)
 		count--;
 	}
 	
-	Clear_Usart3();	
+	//Clear_Usart3();	
 	return ret;
 }
 
@@ -408,7 +354,7 @@ u8 SIM800_GPRS_Set(void)
 	while(count != 0)
 	{
 		ret = SIM800_Send_Cmd("AT+CIPCSGP=1,\"CMNET\"","OK",300);
-		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
+		if(ret == CMD_ACK_NONE)
 		{
 			delay_ms(2000);
 		}
@@ -418,7 +364,7 @@ u8 SIM800_GPRS_Set(void)
 		count--;
 	}
 	
-	Clear_Usart3();	
+	//Clear_Usart3();	
 	return ret;
 }
 
@@ -430,7 +376,7 @@ u8 SIM800_GPRS_Dispaly_IP(void)
 	while(count != 0)
 	{
 		ret = SIM800_Send_Cmd("AT+CIPHEAD=1","OK",300);
-		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
+		if(ret == CMD_ACK_NONE)
 		{
 			delay_ms(2000);
 		}
@@ -440,7 +386,7 @@ u8 SIM800_GPRS_Dispaly_IP(void)
 		count--;
 	}
 	
-	Clear_Usart3();	
+	//Clear_Usart3();	
 	return ret;
 }
 
@@ -452,7 +398,7 @@ u8 SIM800_GPRS_CIPSHUT(void)
 	while(count != 0)
 	{
 		ret = SIM800_Send_Cmd("AT+CIPSHUT","SHUT OK",500);
-		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
+		if(ret == CMD_ACK_NONE)
 		{
 			delay_ms(2000);
 		}
@@ -462,7 +408,7 @@ u8 SIM800_GPRS_CIPSHUT(void)
 		count--;
 	}
 	
-	Clear_Usart3();	
+	//Clear_Usart3();	
 	return ret;
 }
 
@@ -474,7 +420,7 @@ u8 SIM800_GPRS_CGCLASS(void)
 	while(count != 0)
 	{
 		ret = SIM800_Send_Cmd("AT+CGCLASS=\"B\"","OK",300);
-		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
+		if(ret == CMD_ACK_NONE)
 		{
 			delay_ms(2000);
 		}
@@ -484,7 +430,7 @@ u8 SIM800_GPRS_CGCLASS(void)
 		count--;
 	}
 	
-	Clear_Usart3();	
+	//Clear_Usart3();	
 	return ret;
 }
 
@@ -497,7 +443,7 @@ u8 SIM800_GPRS_CGDCONT(void)
 	while(count != 0)
 	{
 		ret = SIM800_Send_Cmd("AT+CGDCONT=1,\"IP\",\"CMNET\"","OK",300);
-		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
+		if(ret == CMD_ACK_NONE)
 		{
 			delay_ms(2000);
 		}
@@ -507,7 +453,7 @@ u8 SIM800_GPRS_CGDCONT(void)
 		count--;
 	}
 	
-	Clear_Usart3();	
+	//Clear_Usart3();	
 	return ret;
 }
 
@@ -515,11 +461,10 @@ u8 Link_Server_AT(u8 mode,const char* ipaddr,const char *port)
 {
 	u8 count = COUNT_AT;
 	u8 ret = CMD_ACK_NONE;
-	char *temp1 = NULL;
-	char *temp2 = NULL;
+	u8 p[100]={0};
+	//char *temp1 = NULL;
+	//char *temp2 = NULL;
 	char *temp3 = NULL;
-	u8 p[256] = {0};
-	u16 index = 0;
 	
 	if(mode)
 	;
@@ -536,7 +481,7 @@ u8 Link_Server_AT(u8 mode,const char* ipaddr,const char *port)
 	while(count != 0)
 	{
 		ret = SIM800_Send_Cmd(p,"CONNECT",1000);
-		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
+		if(ret == CMD_ACK_NONE)
 		{
 			delay_ms(2000);
 		}
@@ -549,20 +494,16 @@ u8 Link_Server_AT(u8 mode,const char* ipaddr,const char *port)
 	//AT指令已经指令完成，下面对返回值进行处理
 	if(ret == CMD_ACK_OK)
 	{
-		for(index = 0; index < 256; index++)
-		{
-			p[index]= USART3_RX_BUF[index];
-		}
-		temp1 = strstr((const char*)p,"CONNECT OK");
-		temp2 = strstr((const char*)p,"ALREADY CONNECT");
-		temp3 = strstr((const char*)p,"CONNECT FAIL");
+		//temp1 = strstr((const char*)(dev.usart_data),"CONNECT OK");
+		//temp2 = strstr((const char*)(dev.usart_data),"ALREADY CONNECT");
+		temp3 = strstr((const char*)(dev.usart_data),"CONNECT FAIL");
 					
 		if(temp3 != NULL)
 		{
-			ret = CMD_ACK_NOK;
+			ret = CMD_ACK_NONE;
 		}
 	}
-	Clear_Usart3();
+	//Clear_Usart3();
 	return ret;
 }
 
@@ -570,54 +511,21 @@ u8 Send_Data_To_Server(char* data)
 {
 	u8 ret = CMD_ACK_NONE;
 	BSP_Printf("准备开始发送数据\r\n");
-	if((Flag_Received_SIM800C_CLOSED == 0xAA) || (Flag_Received_SIM800C_DEACT == 0xAA))
+	if(dev.need_reset)
 		ret = CMD_ACK_DISCONN;
 	else
 		ret = SIM800_Send_Cmd("AT+CIPSEND",">",500);
 	
-	if(ret==CMD_ACK_OK)		//发送数据
+	if(ret == CMD_ACK_OK)		//发送数据
 	{ 
-		Clear_Usart3();   //下面这个相当于一个独立的send
+		//Clear_Usart3();   //下面这个相当于一个独立的send
 		u3_printf("%s",data);
 		delay_ms(100);
-		need_ack_check = TRUE;
-		ret=SIM800_Send_Cmd((u8*)0x1A,"SEND OK",3000);
-		if(ret==CMD_ACK_OK)
-		{
-			//由于等待时间太长，收到Send OK的同时可能收到服务器发回的回文
-			//因此不能在这里清空
-			if(strstr((const char*)USART3_RX_BUF,"TRVBP")==NULL)
-				Clear_Usart3();	
-		}
-		need_ack_check = FALSE;		
-	  //delay_ms(1000); 
+		ret = SIM800_Send_Cmd((u8*)0x1A,"SEND OK",3000);
 	}
 	BSP_Printf("已完成一次发送: %d\r\n", ret);
 	return ret;
 }
-
-
-u8 Receive_Data_From_USART(void)
-{
-	u8 res = 0xAA;
-		
-	if(USART3_RX_STA & 0X8000)		            //接收到一次数据了
-	{ 
-		USART3_RX_BUF[USART3_RX_STA&0X7FFF]=0;	//添加结束符 
-		if(strstr((const char*)USART3_RX_BUF,"TRVBP"))
-		{
-			res = 0;
-		}
-		else
-		{
-			res = 1;
-		}
-	}
-	
-	return res;
-}
-
-
 
 #if 0
 u8 Check_Link_Status(void)
@@ -650,48 +558,48 @@ u8 Check_Link_Status(void)
 //开启2G模块的电源芯片，当做急停按钮来使用
 void SIM800_POWER_ON(void)
 {
- u8 i= 0;
+	u8 i= 0;
 	
- GPIO_InitTypeDef  GPIO_InitStructure;
+	GPIO_InitTypeDef  GPIO_InitStructure;
  	
- RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);	 
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);	 
 	
- GPIO_InitStructure.GPIO_Pin = GPIO_Pin_8 ;				 
- GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP; 		
- GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;		 
- GPIO_Init(GPIOB, &GPIO_InitStructure);	
+	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_8 ;				 
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP; 		
+	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;		 
+	GPIO_Init(GPIOB, &GPIO_InitStructure);	
 
- GPIO_SetBits(GPIOB,GPIO_Pin_8);	
+	GPIO_SetBits(GPIOB,GPIO_Pin_8);	
 
- for(i = 0; i < 5; i++)
- {
-	 delay_ms(1000);	
- }
+	for(i = 0; i < 5; i++)
+	{
+		delay_ms(1000);	
+	}
 }
 
 //关闭2G模块的电源芯片，当做急停按钮来使用
 void SIM800_POWER_OFF(void)
 {
- u8 i= 0;
+	u8 i= 0;
 
- GPIO_InitTypeDef  GPIO_InitStructure;
+	GPIO_InitTypeDef  GPIO_InitStructure;
  	
- RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);	 
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);	 
 	
- GPIO_InitStructure.GPIO_Pin = GPIO_Pin_8 ;				 
- GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP; 		
- GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;		 
- GPIO_Init(GPIOB, &GPIO_InitStructure);	
+	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_8 ;				 
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP; 		
+	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;		 
+	GPIO_Init(GPIOB, &GPIO_InitStructure);	
 	
 
 
-//电源芯片的失能
- GPIO_ResetBits(GPIOB,GPIO_Pin_8);	
+	//电源芯片的失能
+	GPIO_ResetBits(GPIOB,GPIO_Pin_8);	
 
- for(i = 0; i < 5; i++)
- {
-	 delay_ms(1000);	
- }
+	for(i = 0; i < 5; i++)
+	{
+		delay_ms(1000);	
+	}
 
 }
 
@@ -699,60 +607,60 @@ void SIM800_POWER_OFF(void)
 //通过2G模块的PWRKEY来实现开关机
 void SIM800_PWRKEY_ON(void)
 {
- u8 i= 0;
+	u8 i= 0;
 	
- GPIO_InitTypeDef  GPIO_InitStructure;
+	GPIO_InitTypeDef  GPIO_InitStructure;
  	
- RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);	 
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);	 
 	
- GPIO_InitStructure.GPIO_Pin = GPIO_Pin_9 ;				 
- GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP; 		
- GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;		 
- GPIO_Init(GPIOB, &GPIO_InitStructure);	
+	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_9 ;				 
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP; 		
+	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;		 
+	GPIO_Init(GPIOB, &GPIO_InitStructure);	
 
- //PWRKEY的使能
- GPIO_SetBits(GPIOB,GPIO_Pin_9);	
+	//PWRKEY的使能
+	GPIO_SetBits(GPIOB,GPIO_Pin_9);	
 
- for(i = 0; i < 5; i++)
- {
-	 delay_ms(1000);	
- }
+	for(i = 0; i < 5; i++)
+	{
+		delay_ms(1000);	
+	}
 	//开机控制引脚释放
- GPIO_ResetBits(GPIOB,GPIO_Pin_9);
- for(i = 0; i < 10; i++)
- {
-	 delay_ms(1000);	
- }
+	GPIO_ResetBits(GPIOB,GPIO_Pin_9);
+	for(i = 0; i < 10; i++)
+	{
+		delay_ms(1000);	
+	}
 
 }
 
 //通过2G模块的PWRKEY来实现开关机
 void SIM800_PWRKEY_OFF(void)
 {
- u8 i= 0;
+	u8 i= 0;
 	
- GPIO_InitTypeDef  GPIO_InitStructure;
+	GPIO_InitTypeDef  GPIO_InitStructure;
  	
- RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);	 
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);	 
 	
- GPIO_InitStructure.GPIO_Pin = GPIO_Pin_9 ;				 
- GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP; 		
- GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;		 
- GPIO_Init(GPIOB, &GPIO_InitStructure);	
+	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_9 ;				 
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP; 		
+	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;		 
+	GPIO_Init(GPIOB, &GPIO_InitStructure);	
 
- //PWRKEY的使能
- GPIO_SetBits(GPIOB,GPIO_Pin_9);	
+	//PWRKEY的使能
+	GPIO_SetBits(GPIOB,GPIO_Pin_9);	
 
- for(i = 0; i < 5; i++)
- {
-	 delay_ms(1000);	
- }
+	for(i = 0; i < 5; i++)
+	{
+		delay_ms(1000);	
+	}
 	//开机控制引脚释放
- GPIO_ResetBits(GPIOB,GPIO_Pin_9);
- for(i = 0; i < 10; i++)
- {
-	 delay_ms(1000);	
- }
+	GPIO_ResetBits(GPIOB,GPIO_Pin_9);
+	for(i = 0; i < 10; i++)
+	{
+		delay_ms(1000);	
+	}
 
 }
 
@@ -771,7 +679,6 @@ void SIM800_GPRS_Restart(void)
 void SIM800_Powerkey_Restart(void)
 {
 	u8 temp = 0;
-	Flag_SIM800C_In_Reset = 0xAA;
 	BSP_Printf("Powerkey Restart\r\n");
 	SIM800_PWRKEY_OFF();
 	for(temp = 0; temp < 30; temp++)
@@ -779,7 +686,6 @@ void SIM800_Powerkey_Restart(void)
 		delay_ms(1000);
 	}
 	SIM800_PWRKEY_ON();
-	Flag_SIM800C_In_Reset = 0;
 }
 
 void SIM800_Power_Restart(void)
@@ -816,8 +722,8 @@ u8 SIM800_Link_Server_AT(void)
 											//if((ret = SIM800_GPRS_Adhere()) == CMD_ACK_OK)
 												if((ret = SIM800_GPRS_Set()) == CMD_ACK_OK)
 													//if((ret = SIM800_GPRS_Dispaly_IP()) == CMD_ACK_OK)
-														if((ret = Link_Server_AT(0, ipaddr, port)) == CMD_ACK_OK)											
-																;
+														if((ret = Link_Server_AT(0, ipaddr, port)) == CMD_ACK_OK)
+															Reset_Device_Status(CMD_LOGIN);
 
 	return ret;
 }
@@ -1000,18 +906,7 @@ u8 Send_Login_Data(void)
 	Get_Login_Data();
 	BSP_Printf("Login_Buffer:%s\r\n",Login_Buffer);
 	ret = Send_Data_To_Server(Login_Buffer);
-	//发送成功
-	if(ret == CMD_ACK_OK)
-	{
-		Flag_ACK_Resend = 0x01;
-		Flag_ACK_Echo = 0x01;
-		//开启等待服务器回文的超时机制
-		Flag_Wait_Echo = 0xAA;
-		Count_Wait_Echo = 0;
-	}
-
 	return ret;
-
 }
 
 u8 Send_Login_Data_Normal(void)
@@ -1024,7 +919,7 @@ u8 Send_Login_Data_Normal(void)
 		//Clear_Usart3();
 		ret = Send_Login_Data();
 		//Clear_Usart3();
-		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
+		if(ret == CMD_ACK_NONE)
 		{
 			//发送数据失败
 			for(temp = 0; temp < 30; temp++)
@@ -1045,8 +940,6 @@ u8 Send_Login_Data_To_Server(void)
 {
 	u8 count = 5;
 	u8 ret = CMD_ACK_NONE;
-	current_cmd = CMD_LOGIN;
-	Flag_Send_Heart = 0x00;    //把当前心跳定时器停掉，主循环里收到登录回文后会打开正常心跳
 	while(count != 0)
 	{
 		ret = Send_Login_Data_Normal();
@@ -1115,7 +1008,7 @@ void Get_Heart_Data(void)
 	Result_Validation = Check_Xor_Sum(Heart_Buffer, strlen(Heart_Buffer));
 	
 	//校验值转化为字符串
-  sprintf(temp_Result,"%d",Result_Validation);
+	sprintf(temp_Result,"%d",Result_Validation);
 	
 	//添加校验值
 	//判断校验值是否是三个字符
@@ -1133,7 +1026,7 @@ void Get_Heart_Data(void)
 		
 		strcat(Heart_Buffer,temp_Heart_Buffer);
 		Clear_buffer(temp_Result,3);
-	  Clear_buffer(temp_Heart_Buffer,LENGTH_HEART);
+		Clear_buffer(temp_Heart_Buffer,LENGTH_HEART);
 	}
 	if(strlen(temp_Result) == 2)
 	{
@@ -1144,7 +1037,7 @@ void Get_Heart_Data(void)
 		
 		strcat(Heart_Buffer,temp_Heart_Buffer);
 		Clear_buffer(temp_Result,3);
-	  Clear_buffer(temp_Heart_Buffer,LENGTH_HEART);
+		Clear_buffer(temp_Heart_Buffer,LENGTH_HEART);
 	}
 	if(strlen(temp_Result) == 3)
 	{
@@ -1155,7 +1048,7 @@ void Get_Heart_Data(void)
 		}
 		strcat(Heart_Buffer,temp_Heart_Buffer);
 		Clear_buffer(temp_Result,3);
-	  Clear_buffer(temp_Heart_Buffer,LENGTH_HEART);
+		Clear_buffer(temp_Heart_Buffer,LENGTH_HEART);
 	}	
 	
 	//添加,分隔符
@@ -1184,18 +1077,7 @@ u8 Send_Heart_Data(void)
 	u8 ret = CMD_ACK_NONE;
 	Get_Heart_Data();
 	ret = Send_Data_To_Server(Heart_Buffer);
-	//发送成功
-	if(ret == CMD_ACK_OK)
-	{
-		Flag_ACK_Resend = 0x02;
-		Flag_ACK_Echo = 0x02;
-		//开启等待服务器回文的超时机制
-		Flag_Wait_Echo = 0xAA;
-		Count_Wait_Echo = 0;
-	}
-
 	return ret;
-
 }
 
 u8 Send_Heart_Data_Normal(void)
@@ -1208,7 +1090,7 @@ u8 Send_Heart_Data_Normal(void)
 		//Clear_Usart3();
 		ret = Send_Heart_Data();
 		//Clear_Usart3();
-		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
+		if(ret == CMD_ACK_NONE)
 		{
 			//发送数据失败
 			for(temp = 0; temp < 30; temp++)
@@ -1228,7 +1110,6 @@ u8 Send_Heart_Data_Normal(void)
 u8 Send_Heart_Data_To_Server(void)
 {
 	u8 ret = CMD_ACK_NONE;
-	current_cmd = CMD_HB;	
 	ret = Send_Heart_Data_Normal();
 	return ret;
 }
@@ -1265,7 +1146,7 @@ void Get_Resend_Data(void)
 	Result_Validation = Check_Xor_Sum(Resend_Buffer, strlen(Resend_Buffer));
 	
 	//校验值转化为字符串
-  sprintf(temp_Result,"%d",Result_Validation);
+	sprintf(temp_Result,"%d",Result_Validation);
 	
 	//添加校验值
 	//判断校验值是否是三个字符
@@ -1335,18 +1216,7 @@ u8 Send_Resend_Data(void)
 	u8 ret = CMD_ACK_NONE;
 	Get_Resend_Data();
 	ret = Send_Data_To_Server(Resend_Buffer);
-	//发送成功
-	if(ret == CMD_ACK_OK)
-	{
-		Flag_ACK_Resend = 0x03;
-		Flag_ACK_Echo = 0x03;
-		//开启等待服务器回文的超时机制
-		Flag_Wait_Echo = 0xAA;
-		Count_Wait_Echo = 0;
-	}
-
 	return ret;
-
 }
 
 u8 Send_Resend_Data_Normal(void)
@@ -1359,7 +1229,7 @@ u8 Send_Resend_Data_Normal(void)
 		//Clear_Usart3();
 		ret = Send_Resend_Data();
 		//Clear_Usart3();
-		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
+		if(ret == CMD_ACK_NONE)
 		{
 			//发送数据失败
 			for(temp = 0; temp < 30; temp++)
@@ -1384,9 +1254,7 @@ u8 Send_Resend_Data_To_Server(void)
 	return ret;
 }
 
-
-
-void Get_Enable_Data(void)
+void Get_Open_Device_Data(void)
 {
 	char temp_Enable_Buffer[LENGTH_ENABLE] = {0}; 
 	char temp_Result[3] = {0}; 
@@ -1437,7 +1305,7 @@ void Get_Enable_Data(void)
 	Result_Validation = Check_Xor_Sum(Enbale_Buffer, strlen(Enbale_Buffer));
 	
 	//校验值转化为字符串
-  sprintf(temp_Result,"%d",Result_Validation);
+	sprintf(temp_Result,"%d",Result_Validation);
 	
 	//添加校验值
 	//判断校验值是否是三个字符
@@ -1455,7 +1323,7 @@ void Get_Enable_Data(void)
 		
 		strcat(Enbale_Buffer,temp_Enable_Buffer);
 		Clear_buffer(temp_Result,3);
-	  Clear_buffer(temp_Enable_Buffer,LENGTH_ENABLE);
+		Clear_buffer(temp_Enable_Buffer,LENGTH_ENABLE);
 	}
 	if(strlen(temp_Result) == 2)
 	{
@@ -1466,7 +1334,7 @@ void Get_Enable_Data(void)
 		
 		strcat(Enbale_Buffer,temp_Enable_Buffer);
 		Clear_buffer(temp_Result,3);
-	  Clear_buffer(temp_Enable_Buffer,LENGTH_ENABLE);
+		Clear_buffer(temp_Enable_Buffer,LENGTH_ENABLE);
 	}
 	if(strlen(temp_Result) == 3)
 	{
@@ -1477,16 +1345,16 @@ void Get_Enable_Data(void)
 		}
 		strcat(Enbale_Buffer,temp_Enable_Buffer);
 		Clear_buffer(temp_Result,3);
-	  Clear_buffer(temp_Enable_Buffer,LENGTH_ENABLE);
+		Clear_buffer(temp_Enable_Buffer,LENGTH_ENABLE);
 	}	
 	
 	//添加,分隔符
-		for(i = 0; i < strlen(temp01); i++)
-		{
-			temp_Enable_Buffer[i] = temp01[i];
-		}
-		strcat(Enbale_Buffer,temp_Enable_Buffer);
-		Clear_buffer(temp_Enable_Buffer,LENGTH_ENABLE);
+	for(i = 0; i < strlen(temp01); i++)
+	{
+		temp_Enable_Buffer[i] = temp01[i];
+	}
+	strcat(Enbale_Buffer,temp_Enable_Buffer);
+	Clear_buffer(temp_Enable_Buffer,LENGTH_ENABLE);
 	
 	
 	//添加结束符  #
@@ -1494,35 +1362,21 @@ void Get_Enable_Data(void)
 	{
 		temp_Enable_Buffer[i] = temp02[i];
 	}
-		strcat(Enbale_Buffer,temp_Enable_Buffer);
-		Clear_buffer(temp_Enable_Buffer,LENGTH_ENABLE);
-
+	strcat(Enbale_Buffer,temp_Enable_Buffer);
+	Clear_buffer(temp_Enable_Buffer,LENGTH_ENABLE);
 
 }
-
-
 
 //发送接收业务指令完成回文给服务器
-u8 Send_Enable_Data(void)
+u8 Send_Open_Device_Data(void)
 {
 	u8 ret = CMD_ACK_NONE;
-	Get_Enable_Data();
+	Get_Open_Device_Data();
 	ret = Send_Data_To_Server(Enbale_Buffer);
-	//发送成功
-	if(ret == CMD_ACK_OK)
-	{
-		Flag_ACK_Resend = 0x04;
-		//Flag_ACK_Echo = 0x04;    //事实上这条消息不需要超时重发
-		//开启等待服务器回文的超时机制
-		//Flag_Wait_Echo = 0xAA;
-		//Count_Wait_Echo = 0;
-	}
-
 	return ret;
-
 }
 
-u8 Send_Enable_Data_Normal(void)
+u8 Send_Open_Device_Data_Normal(void)
 {
 	u8 temp = 0;
 	u8 ret = CMD_ACK_NONE;
@@ -1530,9 +1384,9 @@ u8 Send_Enable_Data_Normal(void)
 	while(count != 0)
 	{
 		//Clear_Usart3();
-		ret= Send_Enable_Data();
+		ret= Send_Open_Device_Data();
 		//Clear_Usart3();
-		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
+		if(ret == CMD_ACK_NONE)
 		{
 			//发送数据失败
 			for(temp = 0; temp < 30; temp++)
@@ -1551,16 +1405,14 @@ u8 Send_Enable_Data_Normal(void)
 
 //这个流程其实是一条设备回文，设备在CMD_NONE 状态的时候(当前没有处理任何消息)才会进入此流程
 //当然硬件的开关在收到服务器指令时就需要完成，不依赖于这条消息什么时候发送    
-u8 Send_Enable_Data_To_Server(void)
+u8 Send_Open_Device_Data_To_Server(void)
 {
 	u8 ret = CMD_ACK_NONE;
-	current_cmd = CMD_ENABLE_DEVICE; 
-	ret = Send_Enable_Data_Normal();
-	current_cmd = CMD_NONE;    //这条命令发完就完了，不期待任何返回		
+	ret = Send_Open_Device_Data_Normal();	
 	return ret;
 }
 
-void Get_Device_OK_Data(void)
+void Get_Close_Device_Data(void)
 {
 	char temp_Device_OK_Buffer[LENGTH_DEVICE_OK] = {0}; 
 	char temp_Result[3] = {0}; 
@@ -1611,7 +1463,7 @@ void Get_Device_OK_Data(void)
 	Result_Validation = Check_Xor_Sum(Device_OK_Buffer, strlen(Device_OK_Buffer));
 	
 	//校验值转化为字符串
-  sprintf(temp_Result,"%d",Result_Validation);
+	sprintf(temp_Result,"%d",Result_Validation);
 	
 	//添加校验值
 	//判断校验值是否是三个字符
@@ -1629,7 +1481,7 @@ void Get_Device_OK_Data(void)
 		
 		strcat(Device_OK_Buffer,temp_Device_OK_Buffer);
 		Clear_buffer(temp_Result,3);
-	  Clear_buffer(temp_Device_OK_Buffer,LENGTH_DEVICE_OK);
+		Clear_buffer(temp_Device_OK_Buffer,LENGTH_DEVICE_OK);
 	}
 	if(strlen(temp_Result) == 2)
 	{
@@ -1640,7 +1492,7 @@ void Get_Device_OK_Data(void)
 		
 		strcat(Device_OK_Buffer,temp_Device_OK_Buffer);
 		Clear_buffer(temp_Result,3);
-	  Clear_buffer(temp_Device_OK_Buffer,LENGTH_DEVICE_OK);
+		Clear_buffer(temp_Device_OK_Buffer,LENGTH_DEVICE_OK);
 	}
 	if(strlen(temp_Result) == 3)
 	{
@@ -1651,7 +1503,7 @@ void Get_Device_OK_Data(void)
 		}
 		strcat(Device_OK_Buffer,temp_Device_OK_Buffer);
 		Clear_buffer(temp_Result,3);
-	  Clear_buffer(temp_Device_OK_Buffer,LENGTH_DEVICE_OK);
+		Clear_buffer(temp_Device_OK_Buffer,LENGTH_DEVICE_OK);
 	}	
 	
 	//添加,分隔符
@@ -1659,8 +1511,8 @@ void Get_Device_OK_Data(void)
 	{
 		temp_Device_OK_Buffer[i] = temp01[i];
 	}
-		strcat(Device_OK_Buffer,temp_Device_OK_Buffer);
-	  Clear_buffer(temp_Device_OK_Buffer,LENGTH_DEVICE_OK);
+	strcat(Device_OK_Buffer,temp_Device_OK_Buffer);
+	Clear_buffer(temp_Device_OK_Buffer,LENGTH_DEVICE_OK);
 	
 	
 	//添加结束符  #
@@ -1668,35 +1520,21 @@ void Get_Device_OK_Data(void)
 	{
 		temp_Device_OK_Buffer[i] = temp02[i];
 	}
-		strcat(Device_OK_Buffer,temp_Device_OK_Buffer);
-	  Clear_buffer(temp_Device_OK_Buffer,LENGTH_DEVICE_OK);
-
-
+	strcat(Device_OK_Buffer,temp_Device_OK_Buffer);
+	Clear_buffer(temp_Device_OK_Buffer,LENGTH_DEVICE_OK);
+	
 }
-
-
 
 //发送业务执行完成指令给服务器
-u8 Send_Device_OK_Data(void)
+u8 Send_Close_Device_Data(void)
 {
 	u8 ret = CMD_ACK_NONE;
-	Get_Device_OK_Data();
+	Get_Close_Device_Data();
 	ret = Send_Data_To_Server(Device_OK_Buffer);
-	//发送成功
-	if(ret == CMD_ACK_OK)
-	{
-		Flag_ACK_Resend = 0x05;
-		Flag_ACK_Echo = 0x05;
-		//开启等待服务器回文的超时机制
-		Flag_Wait_Echo = 0xAA;
-		Count_Wait_Echo = 0;
-	}
-
 	return ret;
-
 }
 
-u8 Send_Device_OK_Data_Normal(void)
+u8 Send_Close_Device_Data_Normal(void)
 {
 	u8 temp = 0;
 	u8 ret = CMD_ACK_NONE;
@@ -1704,9 +1542,9 @@ u8 Send_Device_OK_Data_Normal(void)
 	while(count != 0)
 	{
 		//Clear_Usart3();
-		ret = Send_Device_OK_Data();
+		ret = Send_Close_Device_Data();
 		//Clear_Usart3();
-		if((ret == CMD_ACK_NONE) || (ret == CMD_ACK_NOK))
+		if(ret == CMD_ACK_NONE)
 		{
 			//发送数据失败
 			for(temp = 0; temp < 30; temp++)
@@ -1723,11 +1561,10 @@ u8 Send_Device_OK_Data_Normal(void)
 
 }
 
-u8 Send_Device_OK_Data_To_Server(void)
+u8 Send_Close_Device_Data_To_Server(void)
 {
 	u8 ret = CMD_ACK_NONE;
-	current_cmd = CMD_CLOSE_DEVICE;
-	ret = Send_Device_OK_Data_Normal();
+	ret = Send_Close_Device_Data_Normal();
 	return ret;
 }
 
@@ -1743,14 +1580,14 @@ void Clear_buffer(char* buffer,u16 length)
 //////////////异或校验和函数///////
 u8 Check_Xor_Sum(char* pBuf, u16 len)
 {
-  u8 Sum = 0;
-  u8 i = 0;
+	u8 Sum = 0;
+	u8 i = 0;
 	Sum = pBuf[0];
 	
-  for (i = 1; i < len; i++ )
-  {
-    Sum = (Sum ^ pBuf[i]);
-  }
+	for (i = 1; i < len; i++ )
+	{
+		Sum = (Sum ^ pBuf[i]);
+	}
 	
-  return Sum;
+	return Sum;
 }

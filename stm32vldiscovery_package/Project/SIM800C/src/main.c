@@ -49,41 +49,19 @@ TIM4                   3                      1
 
 ////////////////////////用户程序自定义的变量和函数///////////////////////////////////////////
 
-//发送函数使用的一组变量
-u8 result_Send_Data = 0xAA;
-u8 count_Send_Data = 0x00;
-u8 current_cmd=0;
-
-char device_on_cmd_string[100]={0};
-
 #define TOTAL_SEND_DATA 3
 #define TOTAL_WAIT_ECO  3        
 u8 Total_Wait_Echo  =  0;
 
-void Reset_Event(void)
+void Reset_Device_Status(u8 status)
 {
-	//首先认为连接没建立
-	Flag_Comm_OK = 0;
-	//清楚重发等待
-	Total_Wait_Echo = 0;
-	Flag_Time_Out_Comm = 0; 
-	Flag_Receive_Login = 0; 	
-	Flag_ACK_Echo = 0xFF;	
-	Flag_Wait_Echo = 0;	
-	//清除心跳包标志
-	Flag_Send_Heart = 0;
-	Flag_Send_Heart_OK = 0;
-	
-	Flag_Receive_Heart = 0; 
-
-	Flag_Check_error = 0;
-	Flag_Receive_Resend = 0;
-	Flag_Receive_Enable = 0;
-	Flag_Receive_Device_OK = 0;
-	Flag_ACK_Resend = 0xFF;	
-
-	Flag_Received_SIM800C_CLOSED=0;
-	Flag_Received_SIM800C_DEACT=0;	
+	dev.status = status;
+	dev.hb_timer = 0;
+	dev.reply_timeout = 0;
+	dev.msg_recv = 0;
+	dev.msg_expect = 0;
+	memset(dev.atcmd_ack, 0, sizeof(dev.atcmd_ack));
+	memset(dev.device_on_cmd_string, 0, sizeof(dev.device_on_cmd_string));	
 }
 
 int main(void)
@@ -91,7 +69,6 @@ int main(void)
 	//u8 temp = 0x00;
 	u32 Count_Heart = 0;
 	u8 i;
-	bool need_notif=FALSE;
 	//设置中断优先级分组为组2：2位抢占优先级，2位响应优先级
 	NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2); 
 	/* Enable GPIOx Clock */
@@ -106,12 +83,10 @@ int main(void)
 #endif
 
 	usart3_init(115200);                            //串口3,对接SIM800
-	
+	Reset_Device_Status(CMD_NONE);
 	//清零USART3_RX_BUF和USART3_RX_STA
 	//在使用串口3之前先清零，排除一些意外情况
 	Clear_Usart3();
-	Flag_Comm_OK = 0;	
-	Flag_Need_Reset = 0;
 	
 	//开机
 	//包含2G模块电源芯片的软件使能和2G模块的PWRKEY的使能
@@ -134,6 +109,7 @@ int main(void)
 		BSP_Printf("SIM800C连接服务器失败，请检查\r\n");
 		//while(1){闪烁LED}
 	}
+	
 	BSP_Printf("SIM800C连接服务器完成\r\n");
 	
 	//程序运行至此，已经成功的链接上服务器，下面发送登录信息给服务器
@@ -145,20 +121,58 @@ int main(void)
 	}
 	BSP_Printf("SIM800C发送登录信息给服务器完成\r\n");
 
-
-	
 	//程序运行至此，已经成功发送登录信息给服务器，下面开启定时器，等待服务器的回文信息
 	//清零串口3的数据，等待接收服务器的数据
 	Clear_Usart3();
 	
 	//开启定时器，每50ms查询一次服务器是否有下发命令
 	//主循环TIMER
-	TIM6_Int_Init(499,2399);						     //50ms中断
+	TIM6_Int_Init(9999,2399);						     // 1s中断
 	TIM_SetCounter(TIM6,0); 
 	TIM_Cmd(TIM6,ENABLE);
 	
 	while(1)
 	{
+		if(dev.need_reset)
+		{
+			BSP_Printf("开始重启\r\n");	
+			TIM_Cmd(TIM7, DISABLE);
+			Reset_Device_Status(CMD_NONE);
+			dev.need_reset = FALSE;
+			SIM800_Powerkey_Restart(); 
+			Reset_Device_Status(CMD_LOGIN);
+			TIM_Cmd(TIM7, ENABLE);
+		}
+		else
+		{
+			switch(dev.status)
+			{
+				case CMD_LOGIN:
+					if(dev.msg_expect == 0)
+					{
+						if(Send_Login_Data_To_Server() != CMD_ACK_OK)
+						{
+							BSP_Printf("SIM800C发送登录信息给服务器失败，请检查\r\n");
+							dev.need_reset = TRUE;
+						}
+					}
+				break;
+				case CMD_HB:
+					if(dev.msg_expect == 0)
+					{
+						if(Send_Heart_Data_To_Server() != CMD_ACK_OK)
+						{
+							BSP_Printf("SIM800C发送心跳信息给服务器失败，请检查\r\n");
+							dev.need_reset = TRUE;
+						}
+					}					
+				break;
+
+				default:
+				break;
+			}
+		}
+#if 0		
 		if((Flag_Received_SIM800C_CLOSED == 0xAA) || (Flag_Received_SIM800C_DEACT == 0xAA))
 		{
 			Clear_Usart3();
@@ -643,22 +657,7 @@ int main(void)
 					Flag_Need_Reset = 0;
 				}	
 		}
-
-		//当前什么事都没干等待服务器消息时接收到了SIM800C的信息
-		if(0x01 == Receive_Data_From_USART())	
-		{
-			/*暂时不做处理*/
-			//清零串口3的接收标志变量
-			
-			BSP_Printf("Main USART3_RX_BUF_SIM800C:%s\r\n",USART3_RX_BUF);
-
-			if(strstr((const char*)USART3_RX_BUF,"CLOSED")!=NULL)
-				Flag_Received_SIM800C_CLOSED = 0xAA;
-			if(strstr((const char*)USART3_RX_BUF,"+PDP: DEACT")!=NULL)
-				Flag_Received_SIM800C_DEACT = 0xAA;
-			Clear_Usart3();
-
-		}
+#endif		
 	}
 }
 

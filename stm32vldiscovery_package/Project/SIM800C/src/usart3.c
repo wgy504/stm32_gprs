@@ -127,4 +127,3 @@ void Clear_Usart3(void)
 	Clear_buffer((char*)USART3_RX_BUF,USART3_MAX_RECV_LEN);	
 	USART3_RX_STA = 0;		    	//«Â¡„
 }
-

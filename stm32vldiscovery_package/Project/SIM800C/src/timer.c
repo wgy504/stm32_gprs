@@ -6,124 +6,30 @@
 #include "stdlib.h"  
 #include "device.h"
 
-//////////////////////////////////////////////
-
-u8 Flag_Time_Out_Reconnec_Normal = 0;           //传输正常时重新链接服务器的超时生效时置位该变量
-u8 Flag_Time_Out_AT = 0;                        //模块链接服务器过程中出现异常后的定时时间到就置位该变量
-u8 Flag_Auth_Infor = 0;  												//收到身份认证命令时置位该变量
-
-u8 Flag_Reported_Data = 0;   										//收到上报数据命令时置位该变量（现阶段是上报TDS值和温度值）
-
-u8 Flag_Comm_OK = 0;                            //设备已经与服务器建立连接，且收到了login回文
-u8 Flag_Need_Reset = 0;
-
-extern u8 Total_Wait_Echo;
-extern u8 current_cmd;
-extern char device_on_cmd_string[];
-
-//////////////////////////////////
-u32 Count_Wait_Echo = 0;         //等待服务器回文的计数值，一个单位代表50ms
-u8  Flag_Wait_Echo = 0;          //需要等待服务器回文时，置位这个变量
-
-u32 Count_Local_Time_Dev_01 = 0;        //开启设备1，本地计时的值，一个单位代表50ms
-u32 Count_Local_Time_Dev_02 = 0;        //开启设备2，本地计时的值，一个单位代表50ms
-u32 Count_Local_Time_Dev_03 = 0;        //开启设备3，本地计时的值，一个单位代表50ms
-u32 Count_Local_Time_Dev_04 = 0;        //开启设备4，本地计时的值，一个单位代表50ms
-u8  Flag_Local_Time_Dev_01 = 0;         //设备1需要本地计时，置位这个变量
-u8  Flag_Local_Time_Dev_02 = 0;         //设备2需要本地计时，置位这个变量
-u8  Flag_Local_Time_Dev_03 = 0;         //设备3需要本地计时，置位这个变量
-u8  Flag_Local_Time_Dev_04 = 0;         //设备4需要本地计时，置位这个变量
-
-u8  Flag_Local_Time_Dev_01_OK = 0;         //设备1本地计时完成，置位这个变量
-u8  Flag_Local_Time_Dev_02_OK = 0;         //设备2本地计时完成，置位这个变量
-u8  Flag_Local_Time_Dev_03_OK = 0;         //设备3本地计时完成，置位这个变量
-u8  Flag_Local_Time_Dev_04_OK = 0;         //设备4本地计时完成，置位这个变量
-
-
-u32 Count_Send_Heart = 0;        //再次发送心跳包的计数值，一个单位代表50ms
-u8  Flag_Send_Heart = 0;         //需要等待再次发送心跳包时，置位这个变量
-u8  Flag_Send_Heart_OK = 0;      //再次发送心跳包的计时到，置位这个变量
-
-u8  Flag_Receive_Heart = 0;      //收到服务器的心跳包回文时，置位这个变量
-
-u8 	Flag_Time_Out_Comm = 0;                      //通信超时机制生效时置位该变量
-u8 	Flag_Receive_Login = 0;  										 //收到登陆信息回文时置位该变量
-u8 	Flag_ACK_Echo = 0xFF;                        //设备端程序利用该变量来判定等待回文超时的是那条指令
-
-u8 	Flag_Check_error = 0;                        //对接收到的信息进行校验，如果校验不通过就置位该变量
-u8 	Flag_Receive_Resend = 0; 										 //接收到重发命令时置位该变量
-u8 	Flag_Receive_Enable = 0; 										 //接收到开启设备命令时置位该变量
-u8 	Flag_Receive_Device_OK = 0; 								 //接收到设备运行结束回文时置位该变量
-u8 	Flag_ACK_Resend = 0xFF;                      //设备端程序利用该变量来判定要重发的是那条命令
-
-u8 Flag_Received_SIM800C_CLOSED = 0;
-u8 Flag_Received_SIM800C_DEACT = 0;
-/*
-	50ms的定时扫描，目的有两个：
-	一是及时获取服务器的下发命令（这里的下发命令包含对设备的回文信息和主动下发的业务指令）
-	二是获取SIM800C的各种输出信息（各种出错的提醒信息也包含在这其中，系统的稳定性调试要在这里多下功夫）
-	50毫秒的扫描周期应该是足够快速的，不放心的话，可以尝试修改为20毫秒甚至是10毫秒......
-*/
+extern void Reset_Device_Status(u8 status);
 
 //定时器6中断服务程序		    
 void TIM6_DAC_IRQHandler(void)
 {
-	u16 length = 0; 
-	u8 result = 0;
-	u8 result_temp = 0;
-	u8 index = 0;
-	char *p, *p1;
-	char *p_temp = NULL;
-	u8 temp_array[3] = {0};
-	u8 offset = 0;
-	u8 temp = 0xAA;
-
+	u8 index;
 	if(TIM_GetITStatus(TIM6, TIM_IT_Update) != RESET)					  //是更新中断
 	{	
 		TIM_ClearITPendingBit(TIM6, TIM_IT_Update);  					//清除TIM6更新中断标志
 
+		BSP_Printf("TIM6 Dev Status: %d, Msg expect: %d, Msg recv: %d\r\n", dev.status, dev.msg_expect, dev.msg_recv);
+	
 		//再次发送心跳包的定时计数
-		if(Flag_Send_Heart == 0xAA)
+		if(dev.hb_timer >= HB_1_MIN)
 		{
-			Count_Send_Heart += 1;
-			if(Count_Send_Heart >= NUMBER_TIME_HEART_50_MS)
+			if(dev.status == CMD_IDLE)
 			{
-				Flag_Send_Heart = 0;
-				Count_Send_Heart = 0;
-				Flag_Send_Heart_OK = 0xAA;
+				Reset_Device_Status(CMD_HB);
 			}
+			dev.hb_timer++;
 		}
 
-#if 0		
-		if(Flag_Local_Time_Dev_01 == 0xAA)
-		{
-			Count_Local_Time_Dev_01 += 1;
-			if(Count_Local_Time_Dev_01 >= 1000)  //这里的1000要根据实际情况进行修改
-			{
-				//计时结束
-				Flag_Local_Time_Dev_01 = 0;
-				//关闭设备(GPIO)
-				//close device必须立刻进行				
-
-				//上报消息给服务器
-				Flag_Local_Time_Dev_01_OK = 0xAA;
-			
-			}
-		}
-		if(Flag_Local_Time_Dev_02 == 0xAA)
-		{
-			Count_Local_Time_Dev_02 += 1;
-		}
-		if(Flag_Local_Time_Dev_03 == 0xAA)
-		{
-			Count_Local_Time_Dev_03 += 1;
-		}
-		if(Flag_Local_Time_Dev_04 == 0xAA)
-		{
-			Count_Local_Time_Dev_04 += 1;
-		}
-#else
 		for(index=DEVICE_01; index<DEVICEn; index++)
+		{
 			switch(g_device_status[index].power)
 			{
 				case ON:
@@ -135,8 +41,11 @@ void TIM6_DAC_IRQHandler(void)
 						{
 							g_device_status[index].passed=g_device_status[index].total=0;
 							g_device_status[index].power=OFF;
-							g_device_status[index].need_notif=TRUE;
 							Device_OFF(index);
+							if(dev.status == CMD_IDLE)
+							{
+								dev.status = CMD_CLOSE_DEVICE;
+							}
 						}
 						else
 							g_device_status[index].passed++;
@@ -152,64 +61,122 @@ void TIM6_DAC_IRQHandler(void)
 				default:
 				break;
 			}
-#endif
-
-		if(Flag_Wait_Echo == 0xAA)
-		{
-			Count_Wait_Echo += 1;
-			//TIME_ECHO的超时时间到,等待服务器回文的最长时间到
-			if(Count_Wait_Echo >= NUMBER_TIME_ECHO_50_MS)
-			{
-				BSP_Printf("超时机制生效\r\n");
-				BSP_Printf("Count_Wait_Echo:%ld\r\n",Count_Wait_Echo);
-				
-				Flag_Wait_Echo = 0;
-				Count_Wait_Echo = 0;
-				Flag_Time_Out_Comm	= 0xAA;
-			}
 		}
-			
-		
-		temp = Receive_Data_From_USART();
-		//正在Reset 时收到的所有消息都清空
-		if(Flag_SIM800C_In_Reset == 0xAA)
+	
+		switch(dev.status)
 		{
-			//BSP_Printf("Reset USART3_RX_BUF_SIM800C:%s\r\n",USART3_RX_BUF);
-			Clear_Usart3();
+			case CMD_LOGIN:
+				if(dev.msg_expect & MSG_DEV_LOGIN)
+				{
+					if(dev.reply_timeout >= HB_1_MIN)
+					{
+
+						dev.msg_expect &= ~MSG_DEV_LOGIN;
+						dev.reply_timeout = 0;
+					}
+					dev.reply_timeout++;
+				}
+			break;
+			case CMD_HB:
+				if(dev.msg_expect & MSG_DEV_HB)
+				{
+					if(dev.reply_timeout >= HB_1_MIN)
+					{
+						dev.msg_expect &= ~MSG_DEV_HB;
+						dev.reply_timeout = 0;
+					}
+					dev.reply_timeout++;
+				}				
+			break;
+			case CMD_CLOSE_DEVICE:
+				if(dev.msg_expect & MSG_DEV_CLOSE)
+				{
+					if(dev.reply_timeout >= HB_1_MIN)
+					{
+						dev.msg_expect &= ~MSG_DEV_CLOSE;
+						dev.reply_timeout = 0;
+					}
+					dev.reply_timeout++;
+				}				
+			break;
+			default:
+			break;
+		}
+
+		BSP_Printf("TIM6 Dev Status: %d, Msg expect: %d, Msg recv: %d\r\n", dev.status, dev.msg_expect, dev.msg_recv);
+		
+		TIM_SetCounter(TIM6,0); 
+	}
+}
+
+//定时器7中断服务程序		    
+void TIM7_IRQHandler(void)
+{ 	
+	u16 length = 0; 
+	u8 result = 0;
+	u8 result_temp = 0;
+	u8 index = 0;
+	char *p, *p1;
+	char *p_temp = NULL;
+	u8 temp_array[3] = {0};
+	u8 offset = 0;
+
+	if (TIM_GetITStatus(TIM7, TIM_IT_Update) != RESET)//是更新中断
+	{	 		
+		TIM_ClearITPendingBit(TIM7, TIM_IT_Update  );  //清除TIM7更新中断标志    
+		USART3_RX_STA|=1<<15;	//标记接收完成
+		TIM_Cmd(TIM7, DISABLE);  //关闭TIM7
+		
+		USART3_RX_BUF[USART3_RX_STA&0X7FFF]=0;	//添加结束符 
+
+		memset(dev.usart_data, 0, sizeof(dev.usart_data));
+		strcpy(dev.usart_data, (const char *)USART3_RX_BUF);
+
+		BSP_Printf("USART BUF:%s\r\n",USART3_RX_BUF);
+
+		BSP_Printf("TIM7 Dev Status: %d, Msg expect: %d, Msg recv: %d\r\n", dev.status, dev.msg_expect, dev.msg_recv);
+		
+		if((strstr((const char*)USART3_RX_BUF,"CLOSED")!=NULL) || (strstr((const char*)USART3_RX_BUF,"+PDP: DEACT")!=NULL))
+		{
+			dev.msg_recv |= MSG_DEV_RESET;
+			dev.need_reset = TRUE;
 		}
 		else
-		{
-			//接收到了SIM800C的信息
-			if(0x01 == temp)	
-			{				
-				BSP_Printf("USART3_RX_BUF_SIM800C:%s\r\n",USART3_RX_BUF);
-				if(strstr((const char*)USART3_RX_BUF,"CLOSED")!=NULL)
-					Flag_Received_SIM800C_CLOSED = 0xAA;
-				if(strstr((const char*)USART3_RX_BUF,"+PDP: DEACT")!=NULL)
-					Flag_Received_SIM800C_DEACT = 0xAA;
-				if(!need_ack_check && strstr((const char*)USART3_RX_BUF, "SEND OK"))
-					Clear_Usart3();			
-				//Clear_Usart3();
-			}
-			//接收到了服务器的信息
-			if(0x00 == temp)	
+		{	
+			//CMD_NONE: 连接之前的状态
+			if( (dev.status == CMD_NONE) || (dev.status == CMD_LOGIN) || (dev.status == CMD_HB) || (dev.status == CMD_CLOSE_DEVICE))
 			{
-				BSP_Printf("USART3_RX_BUF_服务器:%s\r\n",USART3_RX_BUF);
-				BSP_Printf("Count_Wait_Echo_0X00:%ld\r\n",Count_Wait_Echo);
-				
-				//这个标志根据收到的消息是否是等待的消息来清除
-				//Flag_Wait_Echo = 0;
-				//收到任何服务器消息允许当前等待时间重置
-				Count_Wait_Echo = 0;
-				//Total_Wait_Echo = 0;
-				
-				BSP_Printf("need_ack_check: %d, ack: %s\r\n",need_ack_check, atcmd_ack);
-				//为了防止at cmd 等待SIM800C 回文时被打断，消息在下面就删了
-				//因此在这里帮助判断
-				if(need_ack_check && strstr((const char*)USART3_RX_BUF, atcmd_ack))
-					ack_ok = TRUE;
-					
-				p=strstr((const char*)USART3_RX_BUF,"TRVBP");
+				if(dev.msg_expect & MSG_DEV_ACK)
+				{
+					if(strstr((const char*)USART3_RX_BUF, dev.atcmd_ack) != NULL)
+					{
+						dev.msg_recv |= MSG_DEV_ACK;
+						dev.msg_expect &= ~MSG_DEV_ACK;
+						//必须在收到Send Ok 回文后才允许接收服务器回文
+						if(strstr("SEND OK", dev.atcmd_ack)!=NULL) 
+						{
+							switch(dev.status)
+							{
+								case CMD_LOGIN:
+									dev.msg_expect |= MSG_DEV_LOGIN;
+								break;
+								case CMD_HB:
+									dev.msg_expect |= MSG_DEV_HB;
+								break;
+								case CMD_CLOSE_DEVICE:
+									dev.msg_expect |= MSG_DEV_CLOSE;
+								break;
+								default:
+									BSP_Printf("Wrong Status: %d\r\n", dev.status);
+								break;
+							}
+						}	
+					}
+				}
+			}	
+
+			if((p=strstr((const char*)USART3_RX_BUF,"TRVBP"))!=NULL)
+			{
 				if((p1=strstr((const char*)p,"#"))!=NULL)
 				{
 					//调用异或和函数来校验回文	
@@ -235,99 +202,67 @@ void TIM6_DAC_IRQHandler(void)
 					if(result == result_temp)
 					{
 						//收到设备登陆信息的回文
-						if(strstr((const char*)p,"TRVBP00") && (Flag_Receive_Login == 0))
+						if(strstr((const char*)p,"TRVBP00")!=NULL)
 						{
 							BSP_Printf("收到设备登陆信息的回文\r\n");
-							Flag_Receive_Login = 0xAA;					
+							if((dev.status == CMD_LOGIN) && (dev.msg_expect & MSG_DEV_LOGIN))
+							{
+								Reset_Device_Status(CMD_IDLE);
+							}
 						}
 						else
 						{
-							//收到重发命令
-							if(strstr((const char*)p,"TRVBP98") && (Flag_Receive_Resend == 0))
+							//收到心跳回文
+							if(strstr((const char*)p,"TRVBP01")!=NULL)
 							{
-								BSP_Printf("收到服务器重发命令\r\n");
-								Flag_Receive_Resend = 0xAA;
+								BSP_Printf("收到服务器心跳回文\r\n");
+								if((dev.status == CMD_HB) && (dev.msg_expect & MSG_DEV_HB))
+								{
+									Reset_Device_Status(CMD_IDLE);
+								}
 							}
 							else
 							{
-								//收到心跳回文
-								if(strstr((const char*)p,"TRVBP01") && (Flag_Receive_Heart == 0))
+								//收到开启设备指令
+								if(strstr((const char*)p,"TRVBP03")!=NULL)
 								{
-									BSP_Printf("收到服务器心跳回文\r\n");
-									Flag_Receive_Heart = 0xAA;
+									BSP_Printf("收到服务器开启设备指令\r\n");
+
+									if(dev.status == CMD_IDLE)
+									{
+										Reset_Device_Status(CMD_OPEN_DEVICE);
+										strncpy(dev.device_on_cmd_string, p, p1 - p +1);
+									}
 								}
 								else
 								{
-									//收到开启设备指令
-									if(strstr((const char*)p,"TRVBP03") && (Flag_Receive_Enable == 0))
+									//收到运行结束回文
+									if(strstr((const char*)p,"TRVBP05")!=NULL)
 									{
-										BSP_Printf("收到服务器开启设备指令\r\n");
-										strncpy(device_on_cmd_string, p, p1 - p +1);
-										Flag_Receive_Enable = 0xAA;
-										//这里需要判断要打开的设备是不是已经在运行了，
-										//如果是，那就不理这条命令，让服务器通过下一条心跳判断
-										//如果不是，需要保存信息到一个新的buf里面在主循环处理
+										BSP_Printf("收到服务器运行结束回文\r\n");
+										if((dev.status == CMD_CLOSE_DEVICE) && (dev.msg_expect & MSG_DEV_CLOSE))
+										{
+											Reset_Device_Status(CMD_IDLE);
+										}
 									}
 									else
 									{
-										//收到运行结束回文
-										if(strstr((const char*)p,"TRVBP05") && (Flag_Receive_Device_OK == 0))
-										{
-											BSP_Printf("收到服务器运行结束回文\r\n");
-											Flag_Receive_Device_OK = 0xAA;
-										}
-										else
-										{
-											BSP_Printf("不存在的服务器指令\r\n");
-											Flag_Check_error = 0xAA;
-										}
+										BSP_Printf("不存在的服务器指令\r\n");
 									}
 								}
 							}
 						}
-					}   //回文正确
-					//回文异常	
-					if(result != result_temp)
-					{
-						//置错误重发标志
-						//这里不再判定是那条语句接收出错，因为对错误的内容的进行判定，意义不大，由服务器程序来判定重发的内容
-						//同理，嵌入式程序在接收到服务器的重发请求时，也要判定是要重发那条语句
-						BSP_Printf("服务器指令校验错\r\n");
-						Flag_Check_error = 0xAA;
-						//Clear_Usart3();
-					}			
+					}   //回文正确			
 				}
-				else
-				{
-					BSP_Printf("服务器指令不完整\r\n");
-					Flag_Check_error = 0xAA;
-				}
-				//服务器消息的清空放在这里了
-				Clear_Usart3();	
-				BSP_Printf("current_cmd: %d\r\n", current_cmd);
-			}
+			}		
+			//服务器消息的清空放在这里了
+			Clear_Usart3();	
 		}
-		TIM_SetCounter(TIM6,0); 
+		
+		BSP_Printf("Dev Status: %d, Msg expect: %d, Msg recv: %d\r\n", dev.status, dev.msg_expect, dev.msg_recv);			
 	}
+
 }
-
-
-
-//定时器7中断服务程序		    
-void TIM7_IRQHandler(void)
-{ 	
-	if (TIM_GetITStatus(TIM7, TIM_IT_Update) != RESET)//是更新中断
-	{	 		
-		TIM_ClearITPendingBit(TIM7, TIM_IT_Update  );  //清除TIM7更新中断标志    
-	  USART3_RX_STA|=1<<15;	//标记接收完成
-		TIM_Cmd(TIM7, DISABLE);  //关闭TIM7
-	}	    
-}
-
-
-	 
-
-
 
 //通用定时器6中断初始化
 //这里选择为APB1的1倍，而APB1为24M
@@ -356,7 +291,7 @@ void TIM6_Int_Init(u16 arr,u16 psc)
 	//TIM_Cmd(TIM6,ENABLE);//开启定时器6
 	
 	NVIC_InitStructure.NVIC_IRQChannel = TIM6_DAC_IRQn;
-	NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 3 ;//抢占优先级0
+	NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 2 ;//抢占优先级0
 	NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0;		//子优先级3
 	NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;			//IRQ通道使能
 	NVIC_Init(&NVIC_InitStructure);	//根据指定的参数初始化VIC寄存器

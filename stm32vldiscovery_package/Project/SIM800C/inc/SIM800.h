@@ -29,13 +29,10 @@ extern char Enbale_Buffer[LENGTH_ENABLE];
 extern char Device_OK_Buffer[LENGTH_DEVICE_OK];
 
 #define LENGTH_ATCMD_ACK 50
-extern char atcmd_ack[LENGTH_ATCMD_ACK];
-extern bool need_ack_check;
-extern bool ack_ok;
+#define LENGTH_DEVICE_OPEN_CMD        50
+#define LENGTH_USART_DATA        100
 
-extern u8  Flag_SIM800C_In_Reset;
 /*********WJ*********/
-bool SIM800_Check_Cmd(u8 *str);
 u8 	SIM800_Send_Cmd(u8 *cmd,u8 *ack,u16 waittime);
 void Clear_buffer(char* buffer,u16 length);
 u8 Check_Xor_Sum(char* pBuf, u16 len);
@@ -58,7 +55,6 @@ u8 	Link_Server_Echo(void);
 u8 	Link_Server_AT(u8 mode,const char* ipaddr,const char *port);
 
 u8 	Send_Data_To_Server(char* data);
-u8 	Receive_Data_From_USART(void);
 
 u8 	SIM800_GPRS_ON(void);
 u8	SIM800_GPRS_OFF(void);
@@ -79,65 +75,89 @@ u8 SIM800_Link_Server_Powerkey(void);
 void Get_Login_Data(void);
 u8 Send_Login_Data(void);
 u8 Send_Login_Data_Normal(void);
-u8 Send_Login_Data_GPRS(void);
-u8 Send_Login_Data_Powerkey(void);
 u8 Send_Login_Data_To_Server(void);
 
 void Get_Heart_Data(void);
 u8 Send_Heart_Data(void);
 u8 Send_Heart_Data_Normal(void);
-u8 Send_Heart_Data_GPRS(void);
-u8 Send_Heart_Data_Powerkey(void);
 u8 Send_Heart_Data_To_Server(void);
 
 void Get_Resend_Data(void);
 u8 Send_Resend_Data(void);
 u8 Send_Resend_Data_Normal(void);
-u8 Send_Resend_Data_GPRS(void);
-u8 Send_Resend_Data_Powerkey(void);
 u8 Send_Resend_Data_To_Server(void);
 
-void Get_Enable_Data(void);
-u8 Send_Enable_Data(void);
-u8 Send_Enable_Data_Normal(void);
-u8 Send_Enable_Data_GPRS(void);
-u8 Send_Enable_Data_Powerkey(void);
-u8 Send_Enable_Data_To_Server(void);
+void Get_Open_Device_Data(void);
+u8 Send_Open_Device_Data(void);
+u8 Send_Open_Device_Data_Normal(void);
+u8 Send_Open_Device_Data_To_Server(void);
 
-void Get_Device_OK_Data(void);
-u8 Send_Device_OK_Data(void);
-u8 Send_Device_OK_Data_Normal(void);
-u8 Send_Device_OK_Data_GPRS(void);
-u8 Send_Device_OK_Data_Powerkey(void);
-u8 Send_Device_OK_Data_To_Server(void);
+void Get_Close_Device_Data(void);
+u8 Send_Close_Device_Data(void);
+u8 Send_Close_Device_Data_Normal(void);
+u8 Send_Close_Device_Data_To_Server(void);
 
-void Enable_Device(u8 mode);
-
-
-
-
+typedef struct
+{
+	u8 status;
+	u8 hb_timer;   //hb always running
+	u8 reply_timeout;
+	bool need_reset;
+	u32 msg_recv;
+	u32 msg_expect;
+	char atcmd_ack[LENGTH_ATCMD_ACK];
+	char device_on_cmd_string[LENGTH_DEVICE_OPEN_CMD];
+	char usart_data[LENGTH_DEVICE_OPEN_CMD];
+}t_DEV;
 
 /*********WJ*********/
+extern t_DEV dev;
 enum
-{ 
-	CMD_LOGIN = 0x01,
-	CMD_HB = 0x02,
-	CMD_ENABLE_DEVICE = 0x03,
-	CMD_CLOSE_DEVICE = 0x04,
-	CMD_NONE,
+{
+	CMD_NONE,   //before connect
+
+	CMD_IDLE,
+		
+	CMD_LOGIN,
+	CMD_HB,
+	CMD_CLOSE_DEVICE,
+
+	CMD_OPEN_DEVICE,	
+	CMD_ERROR,
 };
 
 enum
 { 
 	CMD_ACK_OK = 0,                 //USART3_RX_STA置位，返回的数据正确
-	CMD_ACK_NOK = 1,               //USART3_RX_STA置位，返回的数据不正确
-	CMD_ACK_DISCONN = 2,       //USART3_RX_STA置位，返回的数据表明掉线
+	CMD_ACK_DISCONN = 1,       //USART3_RX_STA置位，返回的数据表明掉线
 	CMD_ACK_NONE,                  //USART3_RX_STA没有置位
 };
 
+enum
+{
+	MSG_BIT_ACK = 0,                  //Dev->Server
+	MSG_BIT_LOGIN,
+	MSG_BIT_HB,                        
+	MSG_BIT_CLOSE,	
+
+	MSG_BIT_OPEN,               //Server->Dev
+
+	MSG_BIT_RESEND,          //Both Dir
+	
+	MSG_BIT_RESET,             //Reset	
+};
+
+#define MSG_DEV_ACK          ((u32)(1<<MSG_BIT_ACK))
+#define MSG_DEV_LOGIN     ((u32)(1<<MSG_BIT_LOGIN))
+#define MSG_DEV_HB            ((u32)(1<<MSG_BIT_HB))
+#define MSG_DEV_CLOSE      ((u32)(1<<MSG_BIT_CLOSE))
+
+#define MSG_DEV_OPEN        ((u32)(1<<MSG_BIT_OPEN))
+
+#define MSG_DEV_RESEND   ((u32)(1<<MSG_BIT_RESEND))
+
+#define MSG_DEV_RESET      ((u32)(1<<MSG_BIT_RESET))
+
+
 #endif
-
-
-
-
 
