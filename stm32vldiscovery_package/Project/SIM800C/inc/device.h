@@ -5,30 +5,29 @@
 
 typedef enum 
 {
-  OFF = 0,
-  ON = 1,
-  UNKNOWN,	
+	OFF = 0,
+	ON = 1,
+	UNKNOWN,	
 } Device_Power;
 
 enum 
 {
-  DEVICE_01 = 0,
-  DEVICE_02 = 1,
-  DEVICE_03 = 2,
-  DEVICE_04 = 3,
-  DEVICEn,
+	DEVICE_01 = 0,
+	DEVICE_02 = 1,
+	DEVICE_03 = 2,
+	DEVICE_04 = 3,
+	DEVICEn,
 };
 
 typedef struct
 {
-  Device_Power power;
-  bool need_notif;
-  u32 total; 
-  u32 passed;
+	Device_Power power;
+	u32 total; 
+	u32 passed;
 } Device_Info;
 
 
-#define TEST     0
+#define TEST     1
 
 #if TEST
 #define DEVICE1_PIN                         GPIO_Pin_11

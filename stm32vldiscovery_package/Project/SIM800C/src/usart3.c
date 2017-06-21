@@ -85,7 +85,7 @@ void usart3_init(u32 bound)
 	USART_Cmd(USART3, ENABLE);                      //使能串口 
 	
 	//使能接收中断
-  USART_ITConfig(USART3, USART_IT_RXNE, ENABLE);  //开启中断   
+	USART_ITConfig(USART3, USART_IT_RXNE, ENABLE);  //开启中断   
 	
 	//设置中断优先级
 	NVIC_InitStructure.NVIC_IRQChannel = USART3_IRQn;
@@ -121,7 +121,6 @@ void u3_printf(char* fmt,...)
 	} 
 }
 
- 
 void Clear_Usart3(void)
 {
 	Clear_buffer((char*)USART3_RX_BUF,USART3_MAX_RECV_LEN);	

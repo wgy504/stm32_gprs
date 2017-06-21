@@ -8,7 +8,6 @@
 #include <stdlib.h>
 #include "device.h"
 
-#define TOTAL_SEND_DATA 3
 #define COUNT_AT 10
 
 u8 mode = 0;				//0,TCP连接;1,UDP连接
@@ -21,11 +20,6 @@ const char *modetbl[2] = {"TCP","UDP"};//连接模式
 const char  *ipaddr = "116.62.187.167";
 //const char  *ipaddr = "42.159.107.250";
 const char  *port = "8090";
-
-
-
-//模块链接服务器过程中,AT指令异常时置位该变量
-u8 Flag_AT_Unusual = 0;
 
 //存储PCB_ID的数组（也就是SIM卡的ICCID）
 char ICCID_BUF[LENGTH_ICCID_BUF] = {0};
@@ -85,6 +79,8 @@ u8 SIM800_Send_Cmd(u8 *cmd,u8 *ack,u16 waittime)
 				ret = CMD_ACK_DISCONN;
 				break;
 			}
+			//IDLE 是指串口同时收到"SEND OK" + "正确的服务器回文"，在
+			//定时器处理中已经将设备状态转换为IDLE 状态
 			else if((dev.msg_recv & MSG_DEV_ACK) || (dev.status == CMD_IDLE))
 			{
 				ret = CMD_ACK_OK;
@@ -511,6 +507,9 @@ u8 Send_Data_To_Server(char* data)
 {
 	u8 ret = CMD_ACK_NONE;
 	BSP_Printf("准备开始发送数据\r\n");
+	if(dev.status == CMD_IDLE)
+		return CMD_ACK_OK;
+	
 	if(dev.need_reset)
 		ret = CMD_ACK_DISCONN;
 	else

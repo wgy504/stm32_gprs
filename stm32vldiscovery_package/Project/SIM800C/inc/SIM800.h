@@ -103,6 +103,8 @@ typedef struct
 	u8 hb_timer;   //hb always running
 	u8 reply_timeout;
 	bool need_reset;
+	u16 hb_count;
+	u16 msg_timeout;
 	u32 msg_recv;
 	u32 msg_expect;
 	char atcmd_ack[LENGTH_ATCMD_ACK];
@@ -116,7 +118,7 @@ enum
 {
 	CMD_NONE,   //before connect
 
-	CMD_IDLE,
+	CMD_IDLE,    //connected but no op
 		
 	CMD_LOGIN,
 	CMD_HB,

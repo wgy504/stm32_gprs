@@ -49,7 +49,6 @@ TIM4                   3                      1
 
 ////////////////////////用户程序自定义的变量和函数///////////////////////////////////////////
 
-#define TOTAL_SEND_DATA 3
 #define TOTAL_WAIT_ECO  3        
 u8 Total_Wait_Echo  =  0;
 
@@ -58,6 +57,7 @@ void Reset_Device_Status(u8 status)
 	dev.status = status;
 	dev.hb_timer = 0;
 	dev.reply_timeout = 0;
+	dev.msg_timeout = 0;
 	dev.msg_recv = 0;
 	dev.msg_expect = 0;
 	memset(dev.atcmd_ack, 0, sizeof(dev.atcmd_ack));
@@ -66,8 +66,6 @@ void Reset_Device_Status(u8 status)
 
 int main(void)
 {
-	//u8 temp = 0x00;
-	u32 Count_Heart = 0;
 	u8 i;
 	//设置中断优先级分组为组2：2位抢占优先级，2位响应优先级
 	NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2); 
@@ -133,6 +131,10 @@ int main(void)
 	
 	while(1)
 	{
+
+		//BSP_Printf("Main_S Dev Status: %d, Msg expect: %d, Msg recv: %d\r\n", dev.status, dev.msg_expect, dev.msg_recv);
+		//BSP_Printf("Main_S HB: %d, HB TIMER: %d, Msg TIMEOUT: %d\r\n", dev.hb_count, dev.hb_timer, dev.msg_timeout);
+	
 		if(dev.need_reset)
 		{
 			BSP_Printf("开始重启\r\n");	
@@ -141,6 +143,7 @@ int main(void)
 			dev.need_reset = FALSE;
 			SIM800_Powerkey_Restart(); 
 			Reset_Device_Status(CMD_LOGIN);
+			Clear_Usart3();
 			TIM_Cmd(TIM7, ENABLE);
 		}
 		else
@@ -148,30 +151,104 @@ int main(void)
 			switch(dev.status)
 			{
 				case CMD_LOGIN:
-					if(dev.msg_expect == 0)
+					if((dev.msg_expect == 0) && (dev.status == CMD_LOGIN))
 					{
 						if(Send_Login_Data_To_Server() != CMD_ACK_OK)
 						{
-							BSP_Printf("SIM800C发送登录信息给服务器失败，请检查\r\n");
+							BSP_Printf("SIM800C发送登录信息给服务器失败\r\n");
 							dev.need_reset = TRUE;
 						}
 					}
 				break;
-				case CMD_HB:
-					if(dev.msg_expect == 0)
+				
+				case CMD_HB:					
+					if((dev.msg_expect == 0) && (dev.status == CMD_HB))
 					{
+						BSP_Printf("第  %d  次发送心跳\r\n", dev.hb_count++);
 						if(Send_Heart_Data_To_Server() != CMD_ACK_OK)
 						{
-							BSP_Printf("SIM800C发送心跳信息给服务器失败，请检查\r\n");
+							BSP_Printf("SIM800C发送心跳信息给服务器失败\r\n");
 							dev.need_reset = TRUE;
 						}
 					}					
 				break;
+				
+				case CMD_CLOSE_DEVICE:
+					if((dev.msg_expect == 0) && (dev.status == CMD_CLOSE_DEVICE))
+					{
+						if(Send_Close_Device_Data_To_Server() != CMD_ACK_OK)
+						{
+							BSP_Printf("SIM800C发送设备关闭给服务器失败\r\n");
+							dev.need_reset = TRUE;
+						}
+					}					
+				break;
+				
+				case CMD_OPEN_DEVICE:
+				{
+					char *msg_id, *device, *interfaces, *periods;
+					bool interface_on[DEVICEn]={FALSE};
+					int period_on[DEVICEn]={0};
+					//根据当前设备状态进行开启(GPIO)，已经开了的就不处理了
+					//待实现
+					//开启设备并本地计时
+					msg_id = strtok(dev.device_on_cmd_string, ",");
+					if(msg_id)
+						BSP_Printf("msg_id: %s\n", msg_id);
 
+					device = strtok(NULL, ",");
+					if(device)
+						BSP_Printf("device: %s\n", device);	
+					
+					interfaces = strtok(NULL, ",");
+					if(interfaces)
+						BSP_Printf("ports: %s\n", interfaces);
+
+					for(i=DEVICE_01; i<DEVICEn; i++)
+						interface_on[i]=(interfaces[i]=='1')?TRUE:FALSE;
+						
+					periods = strtok(NULL, ",");
+					if(periods)
+						BSP_Printf("periods: %s\n", periods);	
+
+					sscanf(periods, "%02d%02d%02d%02d,", &period_on[DEVICE_01], 
+						&period_on[DEVICE_02], &period_on[DEVICE_03], &period_on[DEVICE_04]);
+
+					for(i=DEVICE_01; i<DEVICEn; i++)
+					{
+						if(interface_on[i] && (g_device_status[i].power == OFF))
+						{
+							g_device_status[i].total = period_on[i] * NUMBER_TIMER_1_MINUTE;
+							g_device_status[i].passed = 0;
+							g_device_status[i].power = ON;		
+							Device_ON(i);
+							BSP_Printf("Port[%d]: %d\n", i, g_device_status[i].total);	
+						}			
+					}
+					memset(dev.device_on_cmd_string, 0, sizeof(dev.device_on_cmd_string));
+					
+					//发送回文给服务器（这里要有四路设备的状态，并且有设备的已运行时间：Count_Local_Time个50毫秒）
+					if(Send_Open_Device_Data_To_Server() != CMD_ACK_OK)
+					{
+						BSP_Printf("发送打开设备回文失败\r\n");
+						dev.need_reset = TRUE;			
+					}
+					else
+					{
+						BSP_Printf("SIM800C发送Enable 回文给服务器完成\r\n");
+					}				
+				}
+								
+				break;
+				
 				default:
 				break;
 			}
 		}
+		
+		//BSP_Printf("Main_E Dev Status: %d, Msg expect: %d, Msg recv: %d\r\n", dev.status, dev.msg_expect, dev.msg_recv);
+		//BSP_Printf("Main_E HB: %d, HB TIMER: %d, Msg TIMEOUT: %d\r\n", dev.hb_count, dev.hb_timer, dev.msg_timeout);
+		
 #if 0		
 		if((Flag_Received_SIM800C_CLOSED == 0xAA) || (Flag_Received_SIM800C_DEACT == 0xAA))
 		{

@@ -23,54 +23,54 @@ Device_Info g_device_status[DEVICEn];
 void Device_Init(void)
 {
  
- GPIO_InitTypeDef  GPIO_InitStructure;
+	GPIO_InitTypeDef  GPIO_InitStructure;
 #if TEST 	
- RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOF, ENABLE);	 
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOF, ENABLE);	 
 #else
- RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);	
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);	
 #endif
 
- GPIO_InitStructure.GPIO_Pin = DEVICE1_PIN;				 
- GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP; 		
- GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;		 
- GPIO_Init(DEVICE1_GPIO_PORT, &GPIO_InitStructure);					
- //GPIO_ResetBits(DEVICE1_GPIO_PORT,DEVICE1_PIN);		
- Device_OFF(DEVICE_01);
+	GPIO_InitStructure.GPIO_Pin = DEVICE1_PIN;				 
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP; 		
+	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;		 
+	GPIO_Init(DEVICE1_GPIO_PORT, &GPIO_InitStructure);					
+	//GPIO_ResetBits(DEVICE1_GPIO_PORT,DEVICE1_PIN);		
+	Device_OFF(DEVICE_01);
 
- GPIO_InitStructure.GPIO_Pin = DEVICE2_PIN;		
- GPIO_Init(DEVICE2_GPIO_PORT, &GPIO_InitStructure);					
- //GPIO_ResetBits(DEVICE2_GPIO_PORT,DEVICE2_PIN);	
- Device_OFF(DEVICE_02);
+	GPIO_InitStructure.GPIO_Pin = DEVICE2_PIN;		
+	GPIO_Init(DEVICE2_GPIO_PORT, &GPIO_InitStructure);					
+	//GPIO_ResetBits(DEVICE2_GPIO_PORT,DEVICE2_PIN);	
+	Device_OFF(DEVICE_02);
 
- GPIO_InitStructure.GPIO_Pin = DEVICE3_PIN;		
- GPIO_Init(DEVICE3_GPIO_PORT, &GPIO_InitStructure);					
- //GPIO_ResetBits(DEVICE3_GPIO_PORT,DEVICE3_PIN);
- Device_OFF(DEVICE_03);
+	GPIO_InitStructure.GPIO_Pin = DEVICE3_PIN;		
+	GPIO_Init(DEVICE3_GPIO_PORT, &GPIO_InitStructure);					
+	//GPIO_ResetBits(DEVICE3_GPIO_PORT,DEVICE3_PIN);
+	Device_OFF(DEVICE_03);
  
- GPIO_InitStructure.GPIO_Pin = DEVICE4_PIN;		
- GPIO_Init(DEVICE4_GPIO_PORT, &GPIO_InitStructure);					
- //GPIO_ResetBits(DEVICE4_GPIO_PORT,DEVICE4_PIN);
- Device_OFF(DEVICE_04);
+	GPIO_InitStructure.GPIO_Pin = DEVICE4_PIN;		
+	GPIO_Init(DEVICE4_GPIO_PORT, &GPIO_InitStructure);					
+	//GPIO_ResetBits(DEVICE4_GPIO_PORT,DEVICE4_PIN);
+	Device_OFF(DEVICE_04);
 
- memset(g_device_status, 0, sizeof(Device_Info)*DEVICEn);
+	memset(g_device_status, 0, sizeof(Device_Info)*DEVICEn);
 
 }
 
 void Device_OFF(u8 Device)
 {
 #if TEST
- GPIO_SetBits(GPIO_PORT[Device], GPIO_PIN[Device]);	
+	GPIO_SetBits(GPIO_PORT[Device], GPIO_PIN[Device]);	
 #else
- GPIO_ResetBits(GPIO_PORT[Device], GPIO_PIN[Device]);						
+	GPIO_ResetBits(GPIO_PORT[Device], GPIO_PIN[Device]);						
 #endif
 }
 
 void Device_ON(u8 Device)
 {
 #if TEST
- GPIO_ResetBits(GPIO_PORT[Device], GPIO_PIN[Device]);	
+	GPIO_ResetBits(GPIO_PORT[Device], GPIO_PIN[Device]);	
 #else
- GPIO_SetBits(GPIO_PORT[Device], GPIO_PIN[Device]);						
+	GPIO_SetBits(GPIO_PORT[Device], GPIO_PIN[Device]);						
 #endif
 }
 
@@ -131,3 +131,4 @@ bool Device_Check_Status(void)
 	return TRUE;
 		
 }
+

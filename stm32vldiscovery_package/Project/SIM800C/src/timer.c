@@ -16,17 +16,21 @@ void TIM6_DAC_IRQHandler(void)
 	{	
 		TIM_ClearITPendingBit(TIM6, TIM_IT_Update);  					//清除TIM6更新中断标志
 
-		BSP_Printf("TIM6 Dev Status: %d, Msg expect: %d, Msg recv: %d\r\n", dev.status, dev.msg_expect, dev.msg_recv);
+		//BSP_Printf("TIM6_S Dev Status: %d, Msg expect: %d, Msg recv: %d\r\n", dev.status, dev.msg_expect, dev.msg_recv);
+		//BSP_Printf("TIM6_S HB: %d, HB TIMER: %d, Msg TIMEOUT: %d\r\n", dev.hb_count, dev.hb_timer, dev.msg_timeout);
+
 	
 		//再次发送心跳包的定时计数
 		if(dev.hb_timer >= HB_1_MIN)
 		{
 			if(dev.status == CMD_IDLE)
 			{
+				BSP_Printf("TIM6: HB Ready\r\n");
 				Reset_Device_Status(CMD_HB);
 			}
-			dev.hb_timer++;
 		}
+		else
+			dev.hb_timer++;
 
 		for(index=DEVICE_01; index<DEVICEn; index++)
 		{
@@ -44,7 +48,8 @@ void TIM6_DAC_IRQHandler(void)
 							Device_OFF(index);
 							if(dev.status == CMD_IDLE)
 							{
-								dev.status = CMD_CLOSE_DEVICE;
+								BSP_Printf("TIM6: 设置设备状态为CLOSE_DEVICE\r\n");
+								Reset_Device_Status(CMD_CLOSE_DEVICE);
 							}
 						}
 						else
@@ -70,9 +75,9 @@ void TIM6_DAC_IRQHandler(void)
 				{
 					if(dev.reply_timeout >= HB_1_MIN)
 					{
-
 						dev.msg_expect &= ~MSG_DEV_LOGIN;
 						dev.reply_timeout = 0;
+						dev.msg_timeout++;
 					}
 					dev.reply_timeout++;
 				}
@@ -84,6 +89,7 @@ void TIM6_DAC_IRQHandler(void)
 					{
 						dev.msg_expect &= ~MSG_DEV_HB;
 						dev.reply_timeout = 0;
+						dev.msg_timeout++;
 					}
 					dev.reply_timeout++;
 				}				
@@ -95,6 +101,7 @@ void TIM6_DAC_IRQHandler(void)
 					{
 						dev.msg_expect &= ~MSG_DEV_CLOSE;
 						dev.reply_timeout = 0;
+						dev.msg_timeout++;
 					}
 					dev.reply_timeout++;
 				}				
@@ -103,7 +110,10 @@ void TIM6_DAC_IRQHandler(void)
 			break;
 		}
 
-		BSP_Printf("TIM6 Dev Status: %d, Msg expect: %d, Msg recv: %d\r\n", dev.status, dev.msg_expect, dev.msg_recv);
+		if(dev.msg_timeout >= NUMBER_MSG_MAX_RETRY)
+			dev.need_reset = TRUE;
+		//BSP_Printf("TIM6_E Dev Status: %d, Msg expect: %d, Msg recv: %d\r\n", dev.status, dev.msg_expect, dev.msg_recv);
+		//BSP_Printf("TIM6_E HB: %d, HB TIMER: %d, Msg TIMEOUT: %d\r\n", dev.hb_count, dev.hb_timer, dev.msg_timeout);
 		
 		TIM_SetCounter(TIM6,0); 
 	}
@@ -123,7 +133,7 @@ void TIM7_IRQHandler(void)
 
 	if (TIM_GetITStatus(TIM7, TIM_IT_Update) != RESET)//是更新中断
 	{	 		
-		TIM_ClearITPendingBit(TIM7, TIM_IT_Update  );  //清除TIM7更新中断标志    
+		TIM_ClearITPendingBit(TIM7, TIM_IT_Update);  //清除TIM7更新中断标志    
 		USART3_RX_STA|=1<<15;	//标记接收完成
 		TIM_Cmd(TIM7, DISABLE);  //关闭TIM7
 		
@@ -134,7 +144,8 @@ void TIM7_IRQHandler(void)
 
 		BSP_Printf("USART BUF:%s\r\n",USART3_RX_BUF);
 
-		BSP_Printf("TIM7 Dev Status: %d, Msg expect: %d, Msg recv: %d\r\n", dev.status, dev.msg_expect, dev.msg_recv);
+		BSP_Printf("TIM7_S Dev Status: %d, Msg expect: %d, Msg recv: %d\r\n", dev.status, dev.msg_expect, dev.msg_recv);
+		BSP_Printf("TIM7_S HB: %d, HB TIMER: %d, Msg TIMEOUT: %d\r\n", dev.hb_count, dev.hb_timer, dev.msg_timeout);
 		
 		if((strstr((const char*)USART3_RX_BUF,"CLOSED")!=NULL) || (strstr((const char*)USART3_RX_BUF,"+PDP: DEACT")!=NULL))
 		{
@@ -144,7 +155,8 @@ void TIM7_IRQHandler(void)
 		else
 		{	
 			//CMD_NONE: 连接之前的状态
-			if( (dev.status == CMD_NONE) || (dev.status == CMD_LOGIN) || (dev.status == CMD_HB) || (dev.status == CMD_CLOSE_DEVICE))
+			if( (dev.status == CMD_NONE) || (dev.status == CMD_LOGIN) || (dev.status == CMD_HB) || (dev.status == CMD_CLOSE_DEVICE)
+				 || (dev.status == CMD_OPEN_DEVICE))
 			{
 				if(dev.msg_expect & MSG_DEV_ACK)
 				{
@@ -153,7 +165,7 @@ void TIM7_IRQHandler(void)
 						dev.msg_recv |= MSG_DEV_ACK;
 						dev.msg_expect &= ~MSG_DEV_ACK;
 						//必须在收到Send Ok 回文后才允许接收服务器回文
-						if(strstr("SEND OK", dev.atcmd_ack)!=NULL) 
+						if(strstr(dev.atcmd_ack, "SEND OK")!=NULL) 
 						{
 							switch(dev.status)
 							{
@@ -259,7 +271,8 @@ void TIM7_IRQHandler(void)
 			Clear_Usart3();	
 		}
 		
-		BSP_Printf("Dev Status: %d, Msg expect: %d, Msg recv: %d\r\n", dev.status, dev.msg_expect, dev.msg_recv);			
+		BSP_Printf("TIM7_E Dev Status: %d, Msg expect: %d, Msg recv: %d\r\n", dev.status, dev.msg_expect, dev.msg_recv);
+		BSP_Printf("TIM7_E HB: %d, HB TIMER: %d, Msg TIMEOUT: %d\r\n", dev.hb_count, dev.hb_timer, dev.msg_timeout);
 	}
 
 }
@@ -332,7 +345,4 @@ void TIM7_Int_Init(u16 arr,u16 psc)
 	NVIC_Init(&NVIC_InitStructure);	//根据指定的参数初始化VIC寄存器
 	
 }
-
-
-
 

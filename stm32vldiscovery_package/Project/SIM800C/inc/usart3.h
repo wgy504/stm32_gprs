@@ -16,15 +16,3 @@ void u3_printf(char* fmt,...);
 void Clear_Usart3(void);
 #endif
 
-
-
-
-
-
-
-
-
-
-
-
-
