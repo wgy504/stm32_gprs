@@ -141,6 +141,7 @@ u8 Disable_Echo(void)
 	}
 	
 	//Clear_Usart3();	
+	delay_ms(2000);	
 	return ret;
 	
 }
@@ -152,7 +153,7 @@ u8 Check_SIM_Card(void)
 	u8 ret = CMD_ACK_NONE;
 	while(count != 0)
 	{
-		ret = SIM800_Send_Cmd("AT+CPIN?","OK",200);
+		ret = SIM800_Send_Cmd("AT+CPIN?","OK",1000);
 		if(ret == CMD_ACK_NONE)
 		{
 			delay_ms(2000);
@@ -162,8 +163,9 @@ u8 Check_SIM_Card(void)
 		
 		count--;
 	}
-	
-	//Clear_Usart3();	
+
+	//Clear_Usart3();
+	delay_ms(2000);	
 	return ret;
 }
 
@@ -339,6 +341,7 @@ u8 SIM800_GPRS_Adhere(void)
 	}
 	
 	//Clear_Usart3();	
+	delay_ms(2000);
 	return ret;
 }
 
@@ -349,7 +352,7 @@ u8 SIM800_GPRS_Set(void)
 	u8 ret = CMD_ACK_NONE;
 	while(count != 0)
 	{
-		ret = SIM800_Send_Cmd("AT+CIPCSGP=1,\"CMNET\"","OK",300);
+		ret = SIM800_Send_Cmd("AT+CIPCSGP=1,\"CMNET\"","OK",600);
 		if(ret == CMD_ACK_NONE)
 		{
 			delay_ms(2000);
@@ -361,6 +364,7 @@ u8 SIM800_GPRS_Set(void)
 	}
 	
 	//Clear_Usart3();	
+	delay_ms(2000);	
 	return ret;
 }
 
@@ -393,7 +397,7 @@ u8 SIM800_GPRS_CIPSHUT(void)
 	u8 ret = CMD_ACK_NONE;
 	while(count != 0)
 	{
-		ret = SIM800_Send_Cmd("AT+CIPSHUT","SHUT OK",500);
+		ret = SIM800_Send_Cmd("AT+CIPSHUT","SHUT OK",1000);
 		if(ret == CMD_ACK_NONE)
 		{
 			delay_ms(2000);
@@ -405,6 +409,7 @@ u8 SIM800_GPRS_CIPSHUT(void)
 	}
 	
 	//Clear_Usart3();	
+	delay_ms(2000);	
 	return ret;
 }
 
@@ -427,6 +432,7 @@ u8 SIM800_GPRS_CGCLASS(void)
 	}
 	
 	//Clear_Usart3();	
+	delay_ms(2000);	
 	return ret;
 }
 
@@ -438,7 +444,7 @@ u8 SIM800_GPRS_CGDCONT(void)
 	u8 ret = CMD_ACK_NONE;
 	while(count != 0)
 	{
-		ret = SIM800_Send_Cmd("AT+CGDCONT=1,\"IP\",\"CMNET\"","OK",300);
+		ret = SIM800_Send_Cmd("AT+CGDCONT=1,\"IP\",\"CMNET\"","OK",600);
 		if(ret == CMD_ACK_NONE)
 		{
 			delay_ms(2000);
@@ -450,6 +456,7 @@ u8 SIM800_GPRS_CGDCONT(void)
 	}
 	
 	//Clear_Usart3();	
+	delay_ms(2000);	
 	return ret;
 }
 
@@ -476,7 +483,7 @@ u8 Link_Server_AT(u8 mode,const char* ipaddr,const char *port)
 
 	while(count != 0)
 	{
-		ret = SIM800_Send_Cmd(p,"CONNECT",1000);
+		ret = SIM800_Send_Cmd(p,"CONNECT",3000);
 		if(ret == CMD_ACK_NONE)
 		{
 			delay_ms(2000);
@@ -506,14 +513,23 @@ u8 Link_Server_AT(u8 mode,const char* ipaddr,const char *port)
 u8 Send_Data_To_Server(char* data)
 {
 	u8 ret = CMD_ACK_NONE;
-	BSP_Printf("准备开始发送数据\r\n");
+
 	if(dev.status == CMD_IDLE)
+	{
+		BSP_Printf("Send_Data_To_Server: already IDLE status\r\n");
 		return CMD_ACK_OK;
+	}
 	
 	if(dev.need_reset)
+	{
+		BSP_Printf("Send_Data_To_Server: Need Reset\r\n");	
 		ret = CMD_ACK_DISCONN;
+	}
 	else
+	{
+		BSP_Printf("准备开始发送数据\r\n");	
 		ret = SIM800_Send_Cmd("AT+CIPSEND",">",500);
+	}
 	
 	if(ret == CMD_ACK_OK)		//发送数据
 	{ 
@@ -626,7 +642,7 @@ void SIM800_PWRKEY_ON(void)
 	}
 	//开机控制引脚释放
 	GPIO_ResetBits(GPIOB,GPIO_Pin_9);
-	for(i = 0; i < 10; i++)
+	for(i = 0; i < 30; i++)
 	{
 		delay_ms(1000);	
 	}

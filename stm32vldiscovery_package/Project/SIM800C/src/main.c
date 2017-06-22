@@ -142,9 +142,13 @@ int main(void)
 			Reset_Device_Status(CMD_NONE);
 			dev.need_reset = FALSE;
 			SIM800_Powerkey_Restart(); 
-			Reset_Device_Status(CMD_LOGIN);
 			Clear_Usart3();
 			TIM_Cmd(TIM7, ENABLE);
+			if(SIM800_Link_Server() != CMD_ACK_OK)
+			{
+				BSP_Printf("重启连接服务器失败\r\n");
+				dev.need_reset = TRUE;
+			}
 		}
 		else
 		{

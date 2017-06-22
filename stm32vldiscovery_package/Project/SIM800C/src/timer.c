@@ -160,6 +160,12 @@ void TIM7_IRQHandler(void)
 			{
 				if(dev.msg_expect & MSG_DEV_ACK)
 				{
+					if((strstr(dev.atcmd_ack, ">")!=NULL) && (strstr((const char*)USART3_RX_BUF,"ERROR")!=NULL))
+					{
+						dev.msg_recv |= MSG_DEV_RESET;
+						dev.need_reset = TRUE;
+					}
+					
 					if(strstr((const char*)USART3_RX_BUF, dev.atcmd_ack) != NULL)
 					{
 						dev.msg_recv |= MSG_DEV_ACK;
@@ -177,6 +183,10 @@ void TIM7_IRQHandler(void)
 								break;
 								case CMD_CLOSE_DEVICE:
 									dev.msg_expect |= MSG_DEV_CLOSE;
+								break;
+								case CMD_OPEN_DEVICE:
+									BSP_Printf("Open Device No Need Resp\r\n");
+									Reset_Device_Status(CMD_IDLE);
 								break;
 								default:
 									BSP_Printf("Wrong Status: %d\r\n", dev.status);
