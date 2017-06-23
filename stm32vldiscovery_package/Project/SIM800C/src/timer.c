@@ -37,12 +37,17 @@ void TIM6_DAC_IRQHandler(void)
 			switch(g_device_status[index].power)
 			{
 				case ON:
+				{
 					if(g_device_status[index].total==0)
+					{
+						BSP_Printf("Error: Dev[%d] %d %d %d\n", index, g_device_status[index].power, g_device_status[index].total, g_device_status[index].passed);
 						g_device_status[index].power = UNKNOWN;
+					}
 					else
 					{
 						if(g_device_status[index].passed >= g_device_status[index].total)
 						{
+							BSP_Printf("Dev[%d]: %d %d %d\n", index, g_device_status[index].power, g_device_status[index].total, g_device_status[index].passed);					
 							g_device_status[index].passed=g_device_status[index].total=0;
 							g_device_status[index].power=OFF;
 							Device_OFF(index);
@@ -55,12 +60,13 @@ void TIM6_DAC_IRQHandler(void)
 						else
 							g_device_status[index].passed++;
 					}
-					break;
+				}	
+				break;
 					
 				case OFF:
 					if(g_device_status[index].total!=0)
 						g_device_status[index].power = UNKNOWN;
-					break;
+				break;
 					
 				case UNKNOWN:
 				default:
