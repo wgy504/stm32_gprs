@@ -538,6 +538,9 @@ u8 Send_Data_To_Server(char* data)
 		delay_ms(100);
 		ret = SIM800_Send_Cmd((u8*)0x1A,"SEND OK",3000);
 	}
+	else
+		SIM800_Send_Cmd((u8*)0x1B,0,0);
+	
 	BSP_Printf("已完成一次发送: %d\r\n", ret);
 	return ret;
 }
@@ -642,7 +645,7 @@ void SIM800_PWRKEY_ON(void)
 	}
 	//开机控制引脚释放
 	GPIO_ResetBits(GPIOB,GPIO_Pin_9);
-	for(i = 0; i < 30; i++)
+	for(i = 0; i < 10; i++)
 	{
 		delay_ms(1000);	
 	}
@@ -838,10 +841,10 @@ void Get_Login_Data(void)
 	}
 	
 	//strcat(Login_Buffer,temp_Login_Buffer);
-	//Clear_buffer(temp_Login_Buffer,LENGTH_LOGIN);
 	strncat(Login_Buffer,temp05,strlen(temp05));
 	
 	//添加设备运行时间
+	Clear_buffer(temp_Login_Buffer,LENGTH_LOGIN);	
 	Device_Timer_Status(temp_Login_Buffer);
 
 	strcat(Login_Buffer,temp_Login_Buffer);	
@@ -1010,10 +1013,10 @@ void Get_Heart_Data(void)
 	}
 	
 	//strcat(Login_Buffer,temp_Login_Buffer);
-	//Clear_buffer(temp_Login_Buffer,LENGTH_LOGIN);
 	strncat(Heart_Buffer,temp05,strlen(temp05));
 	
 	//添加设备运行时间
+	Clear_buffer(temp_Heart_Buffer,LENGTH_HEART);	
 	Device_Timer_Status(temp_Heart_Buffer);
 	
 	strcat(Heart_Buffer,temp_Heart_Buffer);
@@ -1307,10 +1310,10 @@ void Get_Open_Device_Data(void)
 	}
 	
 	//strcat(Login_Buffer,temp_Login_Buffer);
-	//Clear_buffer(temp_Login_Buffer,LENGTH_LOGIN);
 	strncat(Enbale_Buffer,temp05,strlen(temp05));
 	
 	//添加设备运行时间
+	Clear_buffer(temp_Enable_Buffer,LENGTH_ENABLE);	
 	Device_Timer_Status(temp_Enable_Buffer);
 	
 	strcat(Enbale_Buffer,temp_Enable_Buffer);
@@ -1465,10 +1468,10 @@ void Get_Close_Device_Data(void)
 	}
 	
 	//strcat(Login_Buffer,temp_Login_Buffer);
-	//Clear_buffer(temp_Login_Buffer,LENGTH_LOGIN);
 	strncat(Device_OK_Buffer,temp05,strlen(temp05));
 	
 	//添加设备运行时间
+	Clear_buffer(temp_Device_OK_Buffer,LENGTH_DEVICE_OK);	
 	Device_Timer_Status(temp_Device_OK_Buffer);
 	
 	strcat(Device_OK_Buffer,temp_Device_OK_Buffer);
