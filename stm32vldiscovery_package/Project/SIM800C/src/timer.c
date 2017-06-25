@@ -23,11 +23,18 @@ void TIM6_DAC_IRQHandler(void)
 		//再次发送心跳包的定时计数
 		if(dev.hb_timer >= HB_1_MIN)
 		{
+			for(index=DEVICE_01; index<DEVICEn; index++)
+			{
+				BSP_Printf("TIM6 Dev[%d].total: %d, passed: %d\n", index, g_device_status[index].total, g_device_status[index].passed);
+			}
+			
 			if(dev.status == CMD_IDLE)
 			{
 				BSP_Printf("TIM6: HB Ready\r\n");
 				Reset_Device_Status(CMD_HB);
+				dev.msg_recv = 0;
 			}
+			dev.hb_timer = 0;
 		}
 		else
 			dev.hb_timer++;
@@ -55,6 +62,7 @@ void TIM6_DAC_IRQHandler(void)
 							{
 								BSP_Printf("TIM6: 设置设备状态为CLOSE_DEVICE\r\n");
 								Reset_Device_Status(CMD_CLOSE_DEVICE);
+								dev.msg_recv = 0;
 							}
 						}
 						else

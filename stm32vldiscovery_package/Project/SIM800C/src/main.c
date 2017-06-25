@@ -58,7 +58,7 @@ void Reset_Device_Status(u8 status)
 	dev.hb_timer = 0;
 	dev.reply_timeout = 0;
 	dev.msg_timeout = 0;
-	dev.msg_recv = 0;
+	//dev.msg_recv = 0;
 	dev.msg_expect = 0;
 	memset(dev.atcmd_ack, 0, sizeof(dev.atcmd_ack));
 	memset(dev.device_on_cmd_string, 0, sizeof(dev.device_on_cmd_string));	
@@ -82,6 +82,7 @@ int main(void)
 
 	usart3_init(115200);                            //串口3,对接SIM800
 	Reset_Device_Status(CMD_NONE);
+	dev.msg_recv = 0;
 	//清零USART3_RX_BUF和USART3_RX_STA
 	//在使用串口3之前先清零，排除一些意外情况
 	Clear_Usart3();
@@ -140,6 +141,7 @@ int main(void)
 			BSP_Printf("开始重启\r\n");	
 			TIM_Cmd(TIM7, DISABLE);
 			Reset_Device_Status(CMD_NONE);
+			dev.msg_recv = 0;
 			dev.need_reset = FALSE;
 			SIM800_Powerkey_Restart(); 
 			Clear_Usart3();

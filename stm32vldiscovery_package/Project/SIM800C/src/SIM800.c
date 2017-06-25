@@ -20,6 +20,8 @@ const char *modetbl[2] = {"TCP","UDP"};//连接模式
 const char  *ipaddr = "116.62.187.167";
 //const char  *ipaddr = "42.159.107.250";
 const char  *port = "8090";
+const char *delim=",";
+const char *ending="#";
 
 //存储PCB_ID的数组（也就是SIM卡的ICCID）
 char ICCID_BUF[LENGTH_ICCID_BUF] = {0};
@@ -49,9 +51,15 @@ extern void Reset_Device_Status(u8 status);
 u8 SIM800_Send_Cmd(u8 *cmd,u8 *ack,u16 waittime)
 {
 	u8 ret = CMD_ACK_NONE; 
+
+	//放在下面还是这里合适???
+	//dev.msg_recv &= ~MSG_DEV_ACK;	
 	
 	if(ack!=NULL)
 	{
+		//新的一次发送开始，需要把之前recv 的ack 状态清除掉
+		//dev.msg_recv = 0;
+		
 		dev.msg_expect |= MSG_DEV_ACK;
 		memset(dev.atcmd_ack, 0, sizeof(dev.atcmd_ack));
 		strcpy(dev.atcmd_ack, (char *)ack);
@@ -81,7 +89,8 @@ u8 SIM800_Send_Cmd(u8 *cmd,u8 *ack,u16 waittime)
 			}
 			//IDLE 是指串口同时收到"SEND OK" + "正确的服务器回文"，在
 			//定时器处理中已经将设备状态转换为IDLE 状态
-			else if((dev.msg_recv & MSG_DEV_ACK) || (dev.status == CMD_IDLE))
+			//else if((dev.msg_recv & MSG_DEV_ACK) && ((dev.status == CMD_IDLE) || (dev.status == CMD_OPEN_DEVICE)))
+			else if(dev.msg_recv & MSG_DEV_ACK)
 			{
 				ret = CMD_ACK_OK;
 				dev.msg_recv &= ~MSG_DEV_ACK;
@@ -294,7 +303,9 @@ u8 SIM800_GPRS_ON(void)
 		
 		count--;
 	}
-	
+
+	if(ret == CMD_ACK_OK)
+		dev.need_reset = FALSE;
 	//Clear_Usart3();	
 	return ret;
 
@@ -527,7 +538,12 @@ u8 Send_Data_To_Server(char* data)
 	}
 	else
 	{
-		BSP_Printf("准备开始发送数据\r\n");	
+		BSP_Printf("准备开始发送数据\r\n");
+		//由于前一次发送可能收到了ack, 但没有收到服务器回文
+		//因此需要开始重发的时候重置某些变量
+		//PS. 但在中断外部操作设备状态可能有风险!!!
+		Reset_Device_Status(dev.status);
+		dev.msg_recv = 0;
 		ret = SIM800_Send_Cmd("AT+CIPSEND",">",500);
 	}
 	
@@ -539,7 +555,10 @@ u8 Send_Data_To_Server(char* data)
 		ret = SIM800_Send_Cmd((u8*)0x1A,"SEND OK",3000);
 	}
 	else
+	{
+		BSP_Printf("Cancel Sending: %d\r\n", ret);
 		SIM800_Send_Cmd((u8*)0x1B,0,0);
+	}
 	
 	BSP_Printf("已完成一次发送: %d\r\n", ret);
 	return ret;
@@ -649,7 +668,9 @@ void SIM800_PWRKEY_ON(void)
 	{
 		delay_ms(1000);	
 	}
-
+	Reset_Device_Status(CMD_NONE);
+	dev.msg_recv = 0;
+	Clear_Usart3();
 }
 
 //通过2G模块的PWRKEY来实现开关机
@@ -793,6 +814,7 @@ void Get_Login_Data(void)
 	u8 Result_Validation = 0;
 	u8 i = 0;
 	char temp00[] = "TRVAP00,059,000,SIM800_";
+	
 	char temp01[] = ",";
 	char temp02[] = "#";
 	char temp03[] = "0";

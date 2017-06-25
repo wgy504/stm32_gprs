@@ -114,6 +114,7 @@ void Device_Timer_Status(char *buf)
 	char *p=buf;
 	for(i=DEVICE_01; i<DEVICEn; i++)
 	{
+		BSP_Printf("Device_Timer_Status Dev[%d].total: %d, passed: %d\n", i, g_device_status[i].total, g_device_status[i].passed);
 		sprintf(buf, "%02d%02d",
 			(g_device_status[i].total+NUMBER_TIMER_1_MINUTE-1)/NUMBER_TIMER_1_MINUTE,
 			(g_device_status[i].passed+NUMBER_TIMER_1_MINUTE-1)/NUMBER_TIMER_1_MINUTE);
