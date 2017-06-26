@@ -20,29 +20,45 @@ const char *modetbl[2] = {"TCP","UDP"};//连接模式
 const char  *ipaddr = "116.62.187.167";
 //const char  *ipaddr = "42.159.107.250";
 const char  *port = "8090";
-const char *delim=",";
-const char *ending="#";
+const char delim=',';
+const char ending='#';
 
 //存储PCB_ID的数组（也就是SIM卡的ICCID）
-char ICCID_BUF[LENGTH_ICCID_BUF] = {0};
-
-//存储设备重发命令的数组
-char Resend_Buffer[LENGTH_RESEND] = {0};
-
-//存储设备登陆命令的数组
-char Login_Buffer[LENGTH_LOGIN] = {0};
-
-//存储心跳包的数组
-char Heart_Buffer[LENGTH_HEART] = {0};
-
-//存储业务指令回文的数组
-char Enbale_Buffer[LENGTH_ENABLE] = {0};
-
-//存储业务执行完成指令的数组
-char Device_OK_Buffer[LENGTH_DEVICE_OK] = {0};
+char ICCID_BUF[LENGTH_ICCID_BUF+1] = {0};
 
 t_DEV dev={0};
 extern void Reset_Device_Status(u8 status);
+
+enum
+{
+	MSG_STR_ID_LOGIN=0,
+	MSG_STR_ID_HB,
+	MSG_STR_ID_OPEN,
+	MSG_STR_ID_CLOSE,
+
+	MSG_STR_ID_MAX
+};
+
+#define MSG_STR_LEN_OF_ID                                  7         //strlen("TRVAPXX")
+#define MSG_STR_LEN_OF_LENGTH                         3
+#define MSG_STR_LEN_OF_SEQ	                               3
+#define MSG_STR_LEN_OF_DEVICE                          3
+#define MSG_STR_LEN_OF_PORTS                           4
+#define MSG_STR_LEN_OF_PORTS_PERIOD            (MSG_STR_LEN_OF_PORTS*4)
+
+const char *msg_id[MSG_STR_ID_MAX]={"TRVAP00", "TRVAP01", "TRVAP03", "TRVAP05"};
+const char *msg_device="000";
+
+typedef struct
+{
+	char id[MSG_STR_LEN_OF_ID+1];
+	char length[MSG_STR_LEN_OF_LENGTH+1];
+	char seq[MSG_STR_LEN_OF_SEQ+1];	
+	char device[MSG_STR_LEN_OF_DEVICE+1];
+	char ports[MSG_STR_LEN_OF_PORTS+1];
+	char period[MSG_STR_LEN_OF_PORTS_PERIOD+1];
+}msg_data;
+
 
 //SIM800发送命令
 //cmd:发送的命令字符串(不需要添加回车了),当cmd<0XFF的时候,发送数字(比如发送0X1A),大于的时候发送字符串.
@@ -82,7 +98,8 @@ u8 SIM800_Send_Cmd(u8 *cmd,u8 *ack,u16 waittime)
 		while(waittime!=0)	//等待倒计时
 		{ 
 			delay_ms(10);	
-			if(dev.msg_recv & MSG_DEV_RESET)
+			//if(dev.msg_recv & MSG_DEV_RESET)
+			if(dev.need_reset)
 			{
 				ret = CMD_ACK_DISCONN;
 				break;
@@ -275,6 +292,7 @@ u8 Get_ICCID(void)
 	{
 		//AT指令已经指令完成，下面对返回值进行处理
 		p_temp = dev.usart_data;
+		memset(ICCID_BUF, 0, sizeof(ICCID_BUF));
 		//提取ICCID信息到全局变量ICCID_BUF
 		for(index = 0;index < LENGTH_ICCID_BUF;index++)
 		{
@@ -806,6 +824,76 @@ u8 SIM800_Link_Server(void)
 
 }
 
+u8 Get_Device_Upload_Str(u8 msg_str_id, char *msg_str)
+{
+	msg_data *msg=(msg_data *)msg_str;
+	char *p_left=msg_str+sizeof(msg_data);
+	u8 Result_Validation = 0;
+	u8 i;
+
+	if(msg_str == NULL)
+		return 0;
+
+	if(msg_str_id>=MSG_STR_ID_MAX)
+		return 0;
+
+	strncat(msg->id, msg_id[msg_str_id], MSG_STR_LEN_OF_ID);
+	msg->id[MSG_STR_LEN_OF_ID] = delim;
+
+  	strncat(msg->length, "000", MSG_STR_LEN_OF_LENGTH);
+	msg->length[MSG_STR_LEN_OF_LENGTH] = delim;
+
+  	sprintf(msg->seq,"%03d",dev.msg_seq++);	
+	msg->seq[MSG_STR_LEN_OF_SEQ] = delim;
+	
+	strncat(msg->device, msg_device, MSG_STR_LEN_OF_DEVICE);
+	msg->device[MSG_STR_LEN_OF_DEVICE] = delim;
+
+	//由于读取的是GPIO 高低，因此是设备实时状态
+	for(i = 0; i < MSG_STR_LEN_OF_PORTS; i++)
+	{
+		msg->ports[i] = (ON==Device_Power_Status(i))?'1':'0';		
+	}	
+	msg->ports[MSG_STR_LEN_OF_PORTS] = delim;
+
+	Device_Timer_Status(msg->period);
+	msg->period[MSG_STR_LEN_OF_PORTS_PERIOD] = delim;
+	
+	switch(msg_str_id)
+	{
+		case MSG_STR_ID_LOGIN:
+			strcat(p_left, "SIM800_");
+			p_left += strlen("SIM800_");
+			strncat(p_left, ICCID_BUF, LENGTH_ICCID_BUF);
+			p_left += LENGTH_ICCID_BUF;
+			*p_left++ = delim;
+		break;
+		
+		case MSG_STR_ID_HB:
+		case MSG_STR_ID_OPEN:
+		case MSG_STR_ID_CLOSE:
+			
+		break;
+		
+		default:
+		break;
+	}
+
+  	sprintf(msg->length,"%03d",strlen(msg_str)-sizeof(msg->id)-sizeof(msg->length)+5);
+	msg->length[MSG_STR_LEN_OF_LENGTH] = delim;	
+	
+	//添加校验和
+	Result_Validation = Check_Xor_Sum(msg_str, strlen(msg_str));
+	
+	//校验值转化为字符串
+  	sprintf(p_left,"%03d",Result_Validation);
+	p_left += 3;
+	*p_left++ = delim;
+	*p_left++ = ending;
+	*p_left = 0;
+
+	return strlen(msg_str);
+}
 
 void Get_Login_Data(void)
 {
@@ -814,20 +902,13 @@ void Get_Login_Data(void)
 	u8 Result_Validation = 0;
 	u8 i = 0;
 	char temp00[] = "TRVAP00,059,000,SIM800_";
-	
 	char temp01[] = ",";
 	char temp02[] = "#";
-	char temp03[] = "0";
+	char temp03[] = "0";	
 	char temp04[] = "00";
 	char temp05[] = "0000,";       //设备运行状态
-	//char temp06[] = "0000000000000000,";   //设备运行时间
 
-	//清零Resend_Buffer
-	for(i = 0; i < LENGTH_LOGIN; i++)
-	{
-		Login_Buffer[i] = 0;
-	}
-	
+	memset(Login_Buffer, 0, sizeof(Login_Buffer));
 	//添加TRVAP00,FF,000,SIM800_
 	
 	for(i = 0; i < strlen(temp00); i++)
@@ -846,7 +927,6 @@ void Get_Login_Data(void)
 	strcat(Login_Buffer,temp_Login_Buffer);
 	Clear_buffer(temp_Login_Buffer,LENGTH_LOGIN);
 	
-		
 	//添加,分隔符
 	for(i = 0; i < strlen(temp01); i++)
 	{
@@ -869,7 +949,8 @@ void Get_Login_Data(void)
 	Clear_buffer(temp_Login_Buffer,LENGTH_LOGIN);	
 	Device_Timer_Status(temp_Login_Buffer);
 
-	strcat(Login_Buffer,temp_Login_Buffer);	
+	strcat(Login_Buffer,temp_Login_Buffer);
+	strcat(Login_Buffer,",");	
 	Clear_buffer(temp_Login_Buffer,LENGTH_LOGIN);
 	
 	//添加校验和
@@ -943,9 +1024,15 @@ void Get_Login_Data(void)
 u8 Send_Login_Data(void)
 {
 	u8 ret = CMD_ACK_NONE;
-	Get_Login_Data();
-	BSP_Printf("Login_Buffer:%s\r\n",Login_Buffer);
-	ret = Send_Data_To_Server(Login_Buffer);
+	char Login_buf[100]={0};
+	if(Get_Device_Upload_Str(MSG_STR_ID_LOGIN, Login_buf) != 0)
+	{
+		BSP_Printf("Login_Buffer:%s\r\n",Login_buf);	
+		//Get_Login_Data();
+		//BSP_Printf("Login_Buffer:%s\r\n",Login_Buffer);
+		//ret = Send_Data_To_Server(Login_Buffer);
+		ret = Send_Data_To_Server(Login_buf);
+	}
 	return ret;
 }
 
@@ -1115,8 +1202,14 @@ void Get_Heart_Data(void)
 u8 Send_Heart_Data(void)
 {
 	u8 ret = CMD_ACK_NONE;
-	Get_Heart_Data();
-	ret = Send_Data_To_Server(Heart_Buffer);
+	char HB_buf[100]={0};
+	if(Get_Device_Upload_Str(MSG_STR_ID_HB, HB_buf)!=0)
+	{
+		BSP_Printf("New HB:%s\r\n",HB_buf);		
+		//Get_Heart_Data();
+		//ret = Send_Data_To_Server(Heart_Buffer);
+		ret = Send_Data_To_Server(HB_buf);
+	}
 	return ret;
 }
 
@@ -1154,6 +1247,7 @@ u8 Send_Heart_Data_To_Server(void)
 	return ret;
 }
 
+#if 0
 void Get_Resend_Data(void)
 {
 	char temp_Resend_Buffer[LENGTH_RESEND] = {0}; 
@@ -1248,8 +1342,6 @@ void Get_Resend_Data(void)
 
 }
 
-
-
 //收到的消息校验错误，要求服务器重新发送
 u8 Send_Resend_Data(void)
 {
@@ -1293,6 +1385,7 @@ u8 Send_Resend_Data_To_Server(void)
 	ret = Send_Resend_Data_Normal();
 	return ret;
 }
+#endif
 
 void Get_Open_Device_Data(void)
 {
@@ -1411,8 +1504,14 @@ void Get_Open_Device_Data(void)
 u8 Send_Open_Device_Data(void)
 {
 	u8 ret = CMD_ACK_NONE;
-	Get_Open_Device_Data();
-	ret = Send_Data_To_Server(Enbale_Buffer);
+	char Open_Device_buf[100]={0};
+	if(Get_Device_Upload_Str(MSG_STR_ID_OPEN, Open_Device_buf)!=0)
+	{
+		BSP_Printf("New Open:%s\r\n",Open_Device_buf);		
+		//Get_Open_Device_Data();
+		//ret = Send_Data_To_Server(Enbale_Buffer);
+		ret = Send_Data_To_Server(Open_Device_buf);
+	}
 	return ret;
 }
 
@@ -1569,8 +1668,14 @@ void Get_Close_Device_Data(void)
 u8 Send_Close_Device_Data(void)
 {
 	u8 ret = CMD_ACK_NONE;
-	Get_Close_Device_Data();
-	ret = Send_Data_To_Server(Device_OK_Buffer);
+	char Close_Device_buf[100]={0};
+	if(Get_Device_Upload_Str(MSG_STR_ID_CLOSE, Close_Device_buf)!=0)
+	{
+		BSP_Printf("New Close:%s\r\n",Close_Device_buf);		
+		//Get_Close_Device_Data();
+		//ret = Send_Data_To_Server(Device_OK_Buffer);
+		ret = Send_Data_To_Server(Close_Device_buf);
+	}
 	return ret;
 }
 

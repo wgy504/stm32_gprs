@@ -163,12 +163,11 @@ void TIM7_IRQHandler(void)
 		
 		if((strstr((const char*)USART3_RX_BUF,"CLOSED")!=NULL) || (strstr((const char*)USART3_RX_BUF,"+PDP: DEACT")!=NULL))
 		{
-			dev.msg_recv |= MSG_DEV_RESET;
+			//dev.msg_recv |= MSG_DEV_RESET;
 			dev.need_reset = TRUE;
 		}
 		else
 		{	
-			//CMD_NONE: 连接之前的状态
 			if( (dev.status == CMD_NONE) || (dev.status == CMD_LOGIN) || (dev.status == CMD_HB) || (dev.status == CMD_CLOSE_DEVICE)
 				 || (dev.status == CMD_OPEN_DEVICE))
 			{
@@ -176,7 +175,7 @@ void TIM7_IRQHandler(void)
 				{
 					if((strstr(dev.atcmd_ack, ">")!=NULL) && (strstr((const char*)USART3_RX_BUF,"ERROR")!=NULL))
 					{
-						dev.msg_recv |= MSG_DEV_RESET;
+						//dev.msg_recv |= MSG_DEV_RESET;
 						dev.need_reset = TRUE;
 					}
 					

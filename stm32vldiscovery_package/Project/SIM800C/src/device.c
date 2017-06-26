@@ -120,7 +120,6 @@ void Device_Timer_Status(char *buf)
 			(g_device_status[i].passed+NUMBER_TIMER_1_MINUTE-1)/NUMBER_TIMER_1_MINUTE);
 		buf+=4;
 	}
-	*buf = ',';
 	BSP_Printf("Device Status: %s\n", p);
 }
 

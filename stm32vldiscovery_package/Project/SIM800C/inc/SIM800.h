@@ -5,7 +5,7 @@
 
 //存储PCB_ID的数组（也就是SIM卡的ICCID）
 #define LENGTH_ICCID_BUF 20     								//ICCID的长度是20个字符
-extern char ICCID_BUF[LENGTH_ICCID_BUF];
+extern char ICCID_BUF[LENGTH_ICCID_BUF+1];
 #define OFFSET_ICCID 2                          //
 
 //存储设备重发命令的数组
@@ -104,7 +104,8 @@ typedef struct
 	u8 reply_timeout;
 	bool need_reset;
 	u16 hb_count;
-	u16 msg_timeout;
+	u8 msg_seq;
+	u8 msg_timeout;
 	u32 msg_recv;
 	u32 msg_expect;
 	char atcmd_ack[LENGTH_ATCMD_ACK];
@@ -144,9 +145,9 @@ enum
 
 	MSG_BIT_OPEN,               //Server->Dev
 
-	MSG_BIT_RESEND,          //Both Dir
+	//MSG_BIT_RESEND,          //Both Dir
 	
-	MSG_BIT_RESET,             //Reset	
+	//MSG_BIT_RESET,             //Reset	
 };
 
 #define MSG_DEV_ACK          ((u32)(1<<MSG_BIT_ACK))
@@ -156,10 +157,9 @@ enum
 
 #define MSG_DEV_OPEN        ((u32)(1<<MSG_BIT_OPEN))
 
-#define MSG_DEV_RESEND   ((u32)(1<<MSG_BIT_RESEND))
+//#define MSG_DEV_RESEND   ((u32)(1<<MSG_BIT_RESEND))
 
-#define MSG_DEV_RESET      ((u32)(1<<MSG_BIT_RESET))
-
+//#define MSG_DEV_RESET      ((u32)(1<<MSG_BIT_RESET))
 
 #endif
 
