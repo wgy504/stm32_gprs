@@ -97,6 +97,13 @@ u8 Send_Close_Device_Data(void);
 u8 Send_Close_Device_Data_Normal(void);
 u8 Send_Close_Device_Data_To_Server(void);
 
+#define MSG_STR_LEN_OF_ID                                  7         //strlen("TRVAPXX")
+#define MSG_STR_LEN_OF_LENGTH                         3
+#define MSG_STR_LEN_OF_SEQ	                         3
+#define MSG_STR_LEN_OF_DEVICE                          3
+#define MSG_STR_LEN_OF_PORTS                           4
+#define MSG_STR_LEN_OF_PORTS_PERIOD            (MSG_STR_LEN_OF_PORTS*4)
+
 typedef struct
 {
 	u8 status;
@@ -105,13 +112,24 @@ typedef struct
 	bool need_reset;
 	u16 hb_count;
 	u8 msg_seq;
-	u8 msg_timeout;
+	u8 msg_seq_s;
+	u32 msg_timeout;
 	u32 msg_recv;
 	u32 msg_expect;
 	char atcmd_ack[LENGTH_ATCMD_ACK];
 	char device_on_cmd_string[LENGTH_DEVICE_OPEN_CMD];
 	char usart_data[LENGTH_DEVICE_OPEN_CMD];
 }t_DEV;
+
+typedef struct
+{
+	char id[MSG_STR_LEN_OF_ID+1];
+	char length[MSG_STR_LEN_OF_LENGTH+1];
+	char seq[MSG_STR_LEN_OF_SEQ+1];	
+	char device[MSG_STR_LEN_OF_DEVICE+1];
+	char ports[MSG_STR_LEN_OF_PORTS+1];
+	char period[MSG_STR_LEN_OF_PORTS_PERIOD+1];
+}msg_data;
 
 /*********WJ*********/
 extern t_DEV dev;
@@ -161,5 +179,17 @@ enum
 
 //#define MSG_DEV_RESET      ((u32)(1<<MSG_BIT_RESET))
 
+enum
+{
+	MSG_STR_ID_LOGIN=0,
+	MSG_STR_ID_HB,
+	MSG_STR_ID_OPEN,
+	MSG_STR_ID_CLOSE,
+
+	MSG_STR_ID_MAX
+};
+
+extern const char *msg_id[MSG_STR_ID_MAX];
+extern const char *msg_id_s[MSG_STR_ID_MAX];
 #endif
 

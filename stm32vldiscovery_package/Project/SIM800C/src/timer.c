@@ -139,11 +139,10 @@ void TIM7_IRQHandler(void)
 	u16 length = 0; 
 	u8 result = 0;
 	u8 result_temp = 0;
-	u8 index = 0;
+	char *uart_data_left;
 	char *p, *p1;
 	char *p_temp = NULL;
-	u8 temp_array[3] = {0};
-	u8 offset = 0;
+	u8 msg_wait_check=MSG_STR_ID_MAX;
 
 	if (TIM_GetITStatus(TIM7, TIM_IT_Update) != RESET)//是更新中断
 	{	 		
@@ -210,86 +209,75 @@ void TIM7_IRQHandler(void)
 				}
 			}	
 
-			if((p=strstr((const char*)USART3_RX_BUF,"TRVBP"))!=NULL)
+			if((dev.status == CMD_LOGIN) && (dev.msg_expect & MSG_DEV_LOGIN))
 			{
-				if((p1=strstr((const char*)p,"#"))!=NULL)
-				{
-					//调用异或和函数来校验回文	
-					//length = strlen((const char *)(USART3_RX_BUF));
-					length = p1 - p +1;
-					//校验数据
-					result = Check_Xor_Sum((char *)(p),length-5);
-					BSP_Printf("result:%d\r\n",result);
-					
-					//取字符串中的校验值
-					p_temp = (p+length-5);
-					offset = 3;
-					for(index = 0;index < offset;index++)
-					{
-						temp_array[index] = p_temp[index];
-					
-					}
-					//校验值转化为数字，并打印
-					result_temp = atoi((const char *)(temp_array));	
-					BSP_Printf("result_temp:%d\r\n",result_temp);			
-					
-					//回文正确
-					if(result == result_temp)
-					{
-						//收到设备登陆信息的回文
-						if(strstr((const char*)p,"TRVBP00")!=NULL)
-						{
-							BSP_Printf("收到设备登陆信息的回文\r\n");
-							if((dev.status == CMD_LOGIN) && (dev.msg_expect & MSG_DEV_LOGIN))
-							{
-								Reset_Device_Status(CMD_IDLE);
-							}
-						}
-						else
-						{
-							//收到心跳回文
-							if(strstr((const char*)p,"TRVBP01")!=NULL)
-							{
-								BSP_Printf("收到服务器心跳回文\r\n");
-								if((dev.status == CMD_HB) && (dev.msg_expect & MSG_DEV_HB))
-								{
-									Reset_Device_Status(CMD_IDLE);
-								}
-							}
-							else
-							{
-								//收到开启设备指令
-								if(strstr((const char*)p,"TRVBP03")!=NULL)
-								{
-									BSP_Printf("收到服务器开启设备指令\r\n");
+				msg_wait_check = MSG_STR_ID_LOGIN;
+			}
+			else if((dev.status == CMD_HB) && (dev.msg_expect & MSG_DEV_HB))
+			{
+				msg_wait_check = MSG_STR_ID_HB;
+			}
+			else if((dev.status == CMD_CLOSE_DEVICE) && (dev.msg_expect & MSG_DEV_CLOSE))
+			{
+				msg_wait_check = MSG_STR_ID_CLOSE;
+			}
+			else if(dev.status == CMD_IDLE)
+			{
+				msg_wait_check = MSG_STR_ID_OPEN;
+			}
 
-									if(dev.status == CMD_IDLE)
-									{
-										Reset_Device_Status(CMD_OPEN_DEVICE);
-										strncpy(dev.device_on_cmd_string, p, p1 - p +1);
-									}
-								}
-								else
+			if(msg_wait_check != MSG_STR_ID_MAX)
+			{
+				uart_data_left = (char *)USART3_RX_BUF;
+				while((p=strstr(uart_data_left, msg_id_s[msg_wait_check]))!=NULL)
+				{
+					BSP_Printf("Check MSG:%s\n",uart_data_left);
+					if((p1=strstr((const char*)p,"#"))!=NULL)
+					{
+						//调用异或和函数来校验回文	
+						length = p1 - p +1;
+						//校验数据
+						result = Check_Xor_Sum((char *)(p),length-5);
+						BSP_Printf("result:%d\r\n",result);
+						
+						//取字符串中的校验值,校验值转化为数字，并打印
+						result_temp = atoi((const char *)(p+length-5));	
+						BSP_Printf("result_temp:%d\r\n",result_temp);
+						
+						//回文正确
+						if(result == result_temp)
+						{
+							p_temp = p+(MSG_STR_LEN_OF_ID+1)+(MSG_STR_LEN_OF_LENGTH+1);
+							if((p_temp+(MSG_STR_LEN_OF_SEQ+1)) < p1)
+							{
+								//BSP_Printf("seq:%d %d\r\n",dev.msg_seq, atoi(p_temp));
+								if(msg_wait_check == MSG_STR_ID_OPEN)
 								{
-									//收到运行结束回文
-									if(strstr((const char*)p,"TRVBP05")!=NULL)
+									BSP_Printf("Recv Seq:%d Msg:%d from Server\n", atoi(p_temp), msg_wait_check);
+									dev.msg_seq_s = atoi(p_temp);
+									Reset_Device_Status(CMD_OPEN_DEVICE);
+									strncpy(dev.device_on_cmd_string, p, p1 - p +1);
+									break;
+								}
+								else if((msg_wait_check == MSG_STR_ID_LOGIN) || (msg_wait_check == MSG_STR_ID_HB) || 
+										(msg_wait_check == MSG_STR_ID_CLOSE))
+								{
+									if(atoi(p_temp) == dev.msg_seq)
 									{
-										BSP_Printf("收到服务器运行结束回文\r\n");
-										if((dev.status == CMD_CLOSE_DEVICE) && (dev.msg_expect & MSG_DEV_CLOSE))
-										{
-											Reset_Device_Status(CMD_IDLE);
-										}
-									}
-									else
-									{
-										BSP_Printf("不存在的服务器指令\r\n");
+										BSP_Printf("Recv Seq:%d Msg:%d from Server\n", dev.msg_seq, msg_wait_check);
+										Reset_Device_Status(CMD_IDLE);
+										break;							
 									}
 								}
 							}
 						}
-					}   //回文正确			
+						uart_data_left += MSG_STR_LEN_OF_ID;
+					}
+					else
+						break;
 				}
-			}		
+			}
+			
 			//服务器消息的清空放在这里了
 			Clear_Usart3();	
 		}

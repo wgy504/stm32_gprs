@@ -192,9 +192,10 @@ int main(void)
 				
 				case CMD_OPEN_DEVICE:
 				{
-					char *msg_id, *device, *interfaces, *periods;
+					char *msg_id, *seq, *device, *interfaces, *periods;
 					bool interface_on[DEVICEn]={FALSE};
 					int period_on[DEVICEn]={0};
+					BSP_Printf("cmd string: %s\n", dev.device_on_cmd_string);	
 					//根据当前设备状态进行开启(GPIO)，已经开了的就不处理了
 					//待实现
 					//开启设备并本地计时
@@ -205,6 +206,10 @@ int main(void)
 					device = strtok(NULL, ",");
 					if(device)
 						BSP_Printf("device: %s\n", device);	
+
+					seq = strtok(NULL, ",");
+					if(seq)
+						BSP_Printf("seq: %s\n", seq);
 					
 					interfaces = strtok(NULL, ",");
 					if(interfaces)
