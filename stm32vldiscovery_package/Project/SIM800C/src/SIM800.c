@@ -516,7 +516,7 @@ u8 Send_Data_To_Server(char* data)
 {
 	u8 ret = CMD_ACK_NONE;
 
-	if(dev.status == CMD_IDLE)
+	if(dev.status == CMD_TO_IDLE)
 	{
 		BSP_Printf("Send_Data_To_Server: already IDLE status\r\n");
 		return CMD_ACK_OK;
@@ -533,14 +533,14 @@ u8 Send_Data_To_Server(char* data)
 		//由于前一次发送可能收到了ack, 但没有收到服务器回文
 		//因此需要开始重发的时候重置某些变量
 		//PS. 但在中断外部操作设备状态可能有风险!!!
+		dev.msg_recv = 0;		
 		Reset_Device_Status(dev.status);
-		dev.msg_recv = 0;
 		ret = SIM800_Send_Cmd("AT+CIPSEND",">",500);
 	}
 	
 	if(ret == CMD_ACK_OK)		//发送数据
 	{ 
-		//Clear_Usart3();   //下面这个相当于一个独立的send
+		//Clear_Usart3();   //成功发送"AT+CIPSEND" 之后，才使能串口接收
 		u3_printf("%s",data);
 		delay_ms(100);
 		ret = SIM800_Send_Cmd((u8*)0x1A,"SEND OK",3000);
@@ -659,8 +659,8 @@ void SIM800_PWRKEY_ON(void)
 	{
 		delay_ms(1000);	
 	}
+	dev.msg_recv = 0;	
 	Reset_Device_Status(CMD_NONE);
-	dev.msg_recv = 0;
 	Clear_Usart3();
 }
 

@@ -23,16 +23,16 @@ void TIM6_DAC_IRQHandler(void)
 		//再次发送心跳包的定时计数
 		if(dev.hb_timer >= HB_1_MIN)
 		{
-			for(index=DEVICE_01; index<DEVICEn; index++)
+			//for(index=DEVICE_01; index<DEVICEn; index++)
 			{
-				BSP_Printf("TIM6 Dev[%d].total: %d, passed: %d\n", index, g_device_status[index].total, g_device_status[index].passed);
+				//BSP_Printf("TIM6 Dev[%d].total: %d, passed: %d\n", index, g_device_status[index].total, g_device_status[index].passed);
 			}
 			
 			if(dev.status == CMD_IDLE)
 			{
 				BSP_Printf("TIM6: HB Ready\r\n");
+				dev.msg_recv = 0;	
 				Reset_Device_Status(CMD_HB);
-				dev.msg_recv = 0;
 			}
 			dev.hb_timer = 0;
 		}
@@ -61,8 +61,8 @@ void TIM6_DAC_IRQHandler(void)
 							if(dev.status == CMD_IDLE)
 							{
 								BSP_Printf("TIM6: 设置设备状态为CLOSE_DEVICE\r\n");
-								Reset_Device_Status(CMD_CLOSE_DEVICE);
 								dev.msg_recv = 0;
+								Reset_Device_Status(CMD_CLOSE_DEVICE);
 							}
 						}
 						else
@@ -265,20 +265,23 @@ void TIM7_IRQHandler(void)
 									if(atoi(p_temp) == dev.msg_seq)
 									{
 										BSP_Printf("Recv Seq:%d Msg:%d from Server\n", dev.msg_seq, msg_wait_check);
-										Reset_Device_Status(CMD_IDLE);
+										Reset_Device_Status(CMD_TO_IDLE);
 										break;							
 									}
 								}
 							}
 						}
-						uart_data_left += MSG_STR_LEN_OF_ID;
+						uart_data_left = p1;
 					}
 					else
 						break;
 				}
 			}
 			
-			//服务器消息的清空放在这里了
+			/*
+			     1. 在接收的地方判断完毕退出后再使能串口接收
+			     2. 或者如下接收完成就使能接收, 由状态判断哪些消息是有效的
+			*/
 			Clear_Usart3();	
 		}
 		

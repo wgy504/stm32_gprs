@@ -54,7 +54,6 @@ u8 Total_Wait_Echo  =  0;
 
 void Reset_Device_Status(u8 status)
 {
-	dev.status = status;
 	dev.hb_timer = 0;
 	dev.reply_timeout = 0;
 	dev.msg_timeout = 0;
@@ -62,6 +61,7 @@ void Reset_Device_Status(u8 status)
 	dev.msg_expect = 0;
 	memset(dev.atcmd_ack, 0, sizeof(dev.atcmd_ack));
 	memset(dev.device_on_cmd_string, 0, sizeof(dev.device_on_cmd_string));	
+	dev.status = status;	
 }
 
 int main(void)
@@ -81,8 +81,8 @@ int main(void)
 #endif
 
 	usart3_init(115200);                            //串口3,对接SIM800
+	dev.msg_recv = 0;	
 	Reset_Device_Status(CMD_NONE);
-	dev.msg_recv = 0;
 	//清零USART3_RX_BUF和USART3_RX_STA
 	//在使用串口3之前先清零，排除一些意外情况
 	Clear_Usart3();
@@ -140,8 +140,8 @@ int main(void)
 		{
 			BSP_Printf("开始重启\r\n");	
 			TIM_Cmd(TIM7, DISABLE);
+			dev.msg_recv = 0;			
 			Reset_Device_Status(CMD_NONE);
-			dev.msg_recv = 0;
 			dev.need_reset = FALSE;
 			SIM800_Powerkey_Restart(); 
 			Clear_Usart3();
@@ -164,6 +164,11 @@ int main(void)
 							BSP_Printf("SIM800C发送登录信息给服务器失败\r\n");
 							dev.need_reset = TRUE;
 						}
+						else
+						{
+							//Clear_Usart3();
+							BSP_Printf("SIM800C发送登录信息给服务器完成\r\n");
+						}	
 					}
 				break;
 				
@@ -176,6 +181,11 @@ int main(void)
 							BSP_Printf("SIM800C发送心跳信息给服务器失败\r\n");
 							dev.need_reset = TRUE;
 						}
+						else
+						{
+							//Clear_Usart3();
+							BSP_Printf("SIM800C发送心跳信息给服务器完成\r\n");
+						}						
 					}					
 				break;
 				
@@ -187,6 +197,11 @@ int main(void)
 							BSP_Printf("SIM800C发送设备关闭给服务器失败\r\n");
 							dev.need_reset = TRUE;
 						}
+						else
+						{
+							//Clear_Usart3();
+							BSP_Printf("SIM800C发送设备关闭给服务器完成\r\n");
+						}						
 					}					
 				break;
 				
@@ -197,7 +212,6 @@ int main(void)
 					int period_on[DEVICEn]={0};
 					BSP_Printf("cmd string: %s\n", dev.device_on_cmd_string);	
 					//根据当前设备状态进行开启(GPIO)，已经开了的就不处理了
-					//待实现
 					//开启设备并本地计时
 					msg_id = strtok(dev.device_on_cmd_string, ",");
 					if(msg_id)
@@ -246,10 +260,16 @@ int main(void)
 					}
 					else
 					{
+						//Clear_Usart3();
 						BSP_Printf("SIM800C发送Enable 回文给服务器完成\r\n");
 					}				
 				}
 								
+				break;
+
+				case CMD_TO_IDLE:
+					dev.msg_recv = 0;
+					Reset_Device_Status(CMD_IDLE);
 				break;
 				
 				default:

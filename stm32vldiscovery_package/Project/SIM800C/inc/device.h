@@ -21,7 +21,7 @@ enum
 
 typedef struct
 {
-	Device_Power power;
+	u32 power;
 	u32 total; 
 	u32 passed;
 } Device_Info;
