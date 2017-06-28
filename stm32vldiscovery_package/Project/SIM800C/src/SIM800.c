@@ -287,23 +287,10 @@ u8 Get_ICCID(void)
 
 u8 SIM800_GPRS_ON(void)
 {
-	u8 count = COUNT_AT;
-	u8 ret = CMD_ACK_NONE;
-	while(count != 0)
-	{
-		ret = SIM800_Send_Cmd("AT+CIPSTART=\"TCP\",\"116.62.187.167\",\"8090\"","CONNECT OK",700);
-		if(ret == CMD_ACK_NONE)
-		{
-			delay_ms(2000);
-		}
-		else if((ret == CMD_ACK_OK) || (ret == CMD_ACK_DISCONN))
-			break;
-		
-		count--;
-	}
-
-	if(ret == CMD_ACK_OK)
+	u8 ret = CMD_ACK_NONE;	
+	if((ret = Link_Server_AT(0, ipaddr, port)) == CMD_ACK_OK)
 		dev.need_reset = FALSE;
+	
 	//Clear_Usart3();	
 	return ret;
 
@@ -326,7 +313,8 @@ u8 SIM800_GPRS_OFF(void)
 		
 		count--;
 	}
-	
+
+	Reset_Device_Status(CMD_NONE);	
 	//Clear_Usart3();	
 	return ret;
 }
@@ -479,7 +467,7 @@ u8 Link_Server_AT(u8 mode,const char* ipaddr,const char *port)
 	char *temp3 = NULL;
 	
 	if(mode)
-	;
+		;
 	else 
 		;
 		
@@ -540,8 +528,16 @@ u8 Send_Data_To_Server(char* data)
 		//由于前一次发送可能收到了ack, 但没有收到服务器回文
 		//因此需要开始重发的时候重置某些变量
 		//PS. 但在中断外部操作设备状态可能有风险!!!
+		//Reset_Device_Status(dev.status);
 		dev.msg_recv = 0;		
-		Reset_Device_Status(dev.status);
+		//dev.hb_timer = 0;
+		//dev.reply_timeout = 0;
+		//dev.msg_timeout = 0;
+		//dev.msg_recv = 0;
+		dev.msg_expect = 0;
+		memset(dev.atcmd_ack, 0, sizeof(dev.atcmd_ack));
+		memset(dev.device_on_cmd_string, 0, sizeof(dev.device_on_cmd_string));
+		
 		ret = SIM800_Send_Cmd("AT+CIPSEND",">",500);
 	}
 	
@@ -667,6 +663,7 @@ void SIM800_PWRKEY_ON(void)
 		delay_ms(1000);	
 	}
 	dev.msg_recv = 0;	
+	dev.need_reset = FALSE;
 	Reset_Device_Status(CMD_NONE);
 	Clear_Usart3();
 }

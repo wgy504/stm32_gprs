@@ -142,7 +142,7 @@ int main(void)
 			TIM_Cmd(TIM7, DISABLE);
 			dev.msg_recv = 0;			
 			Reset_Device_Status(CMD_NONE);
-			dev.need_reset = FALSE;
+			//dev.need_reset = FALSE;
 			SIM800_Powerkey_Restart(); 
 			Clear_Usart3();
 			TIM_Cmd(TIM7, ENABLE);

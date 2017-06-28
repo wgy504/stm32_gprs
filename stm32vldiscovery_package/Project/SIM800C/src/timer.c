@@ -92,6 +92,7 @@ void TIM6_DAC_IRQHandler(void)
 						dev.msg_expect &= ~MSG_DEV_LOGIN;
 						dev.reply_timeout = 0;
 						dev.msg_timeout++;
+						BSP_Printf("[%d]: Ready to send Msg MSG_DEV_LOGIN again\n", dev.msg_timeout);
 					}
 					dev.reply_timeout++;
 				}
@@ -104,6 +105,7 @@ void TIM6_DAC_IRQHandler(void)
 						dev.msg_expect &= ~MSG_DEV_HB;
 						dev.reply_timeout = 0;
 						dev.msg_timeout++;
+						BSP_Printf("[%d]: Ready to send Msg MSG_DEV_HB again\n", dev.msg_timeout);
 					}
 					dev.reply_timeout++;
 				}				
@@ -116,6 +118,7 @@ void TIM6_DAC_IRQHandler(void)
 						dev.msg_expect &= ~MSG_DEV_CLOSE;
 						dev.reply_timeout = 0;
 						dev.msg_timeout++;
+						BSP_Printf("[%d]: Ready to send Msg MSG_DEV_CLOSE again\n", dev.msg_timeout);
 					}
 					dev.reply_timeout++;
 				}				
@@ -125,7 +128,11 @@ void TIM6_DAC_IRQHandler(void)
 		}
 
 		if(dev.msg_timeout >= NUMBER_MSG_MAX_RETRY)
+		{	
+			BSP_Printf("Retry sending too many times, need reset\n");	
+			dev.msg_timeout = 0;
 			dev.need_reset = TRUE;
+		}	
 		//BSP_Printf("TIM6_E Dev Status: %d, Msg expect: %d, Msg recv: %d\r\n", dev.status, dev.msg_expect, dev.msg_recv);
 		//BSP_Printf("TIM6_E HB: %d, HB TIMER: %d, Msg TIMEOUT: %d\r\n", dev.hb_count, dev.hb_timer, dev.msg_timeout);
 		
@@ -152,9 +159,6 @@ void TIM7_IRQHandler(void)
 		
 		USART3_RX_BUF[USART3_RX_STA&0X7FFF]=0;	//添加结束符 
 
-		memset(dev.usart_data, 0, sizeof(dev.usart_data));
-		strcpy(dev.usart_data, (const char *)USART3_RX_BUF);
-
 		BSP_Printf("USART BUF:%s\r\n",USART3_RX_BUF);
 
 		BSP_Printf("TIM7_S Dev Status: %d, Msg expect: %d, Msg recv: %d\r\n", dev.status, dev.msg_expect, dev.msg_recv);
@@ -180,6 +184,9 @@ void TIM7_IRQHandler(void)
 					
 					if(strstr((const char*)USART3_RX_BUF, dev.atcmd_ack) != NULL)
 					{
+						memset(dev.usart_data, 0, sizeof(dev.usart_data));
+						strcpy(dev.usart_data, (const char *)USART3_RX_BUF);	
+						
 						dev.msg_recv |= MSG_DEV_ACK;
 						dev.msg_expect &= ~MSG_DEV_ACK;
 						//必须在收到Send Ok 回文后才允许接收服务器回文
