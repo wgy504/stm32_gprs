@@ -255,7 +255,14 @@ u8 Get_ICCID(void)
 		{
 			delay_ms(2000);
 		}
-		else if((ret == CMD_ACK_OK) || (ret == CMD_ACK_DISCONN))
+		else if(ret == CMD_ACK_OK)
+		{
+			if(strstr(dev.usart_data, "AT+CCID")==NULL)
+				break;
+			else
+				Disable_Echo();
+		}
+		else if(ret == CMD_ACK_DISCONN)
 			break;
 		
 		count--;
@@ -271,7 +278,7 @@ u8 Get_ICCID(void)
 		{
 			ICCID_BUF[index] = *(p_temp+OFFSET_ICCID+index);
 		}
-		//BSP_Printf("ICCID_BUF:%s\r\n",ICCID_BUF);
+		BSP_Printf("ICCID_BUF:%s\r\n",ICCID_BUF);
 	}
 	//AT指令的回文已经处理完成，清零
 	//Clear_Usart3();
