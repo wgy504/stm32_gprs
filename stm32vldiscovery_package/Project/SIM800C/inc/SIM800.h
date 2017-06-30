@@ -31,6 +31,7 @@ extern char Device_OK_Buffer[LENGTH_DEVICE_OK];
 #define LENGTH_ATCMD_ACK 50
 #define LENGTH_DEVICE_OPEN_CMD        50
 #define LENGTH_USART_DATA        100
+#define LENGTH_SMS_BACKUP        100
 
 /*********WJ*********/
 u8 	SIM800_Send_Cmd(u8 *cmd,u8 *ack,u16 waittime);
@@ -72,34 +73,28 @@ u8 SIM800_Link_Server(void);
 u8 SIM800_Link_Server_AT(void);
 u8 SIM800_Link_Server_Powerkey(void);
 
-void Get_Login_Data(void);
 u8 Send_Login_Data(void);
 u8 Send_Login_Data_Normal(void);
 u8 Send_Login_Data_To_Server(void);
 
-void Get_Heart_Data(void);
 u8 Send_Heart_Data(void);
 u8 Send_Heart_Data_Normal(void);
 u8 Send_Heart_Data_To_Server(void);
 
-void Get_Resend_Data(void);
-u8 Send_Resend_Data(void);
-u8 Send_Resend_Data_Normal(void);
-u8 Send_Resend_Data_To_Server(void);
-
-void Get_Open_Device_Data(void);
 u8 Send_Open_Device_Data(void);
 u8 Send_Open_Device_Data_Normal(void);
 u8 Send_Open_Device_Data_To_Server(void);
 
-void Get_Close_Device_Data(void);
 u8 Send_Close_Device_Data(void);
 u8 Send_Close_Device_Data_Normal(void);
 u8 Send_Close_Device_Data_To_Server(void);
-
+char *SIM800_SMS_Create(char *sms_data, char *raw);
+u8 SIM800_SMS_Notif(char *phone, char *sms);
+	
 #define MSG_STR_LEN_OF_ID                                  7         //strlen("TRVAPXX")
 #define MSG_STR_LEN_OF_LENGTH                         3
-#define MSG_STR_LEN_OF_SEQ	                         3
+#define MSG_STR_LEN_OF_SEQ	                               3
+#define MSG_STR_LEN_OF_DUP                               2
 #define MSG_STR_LEN_OF_DEVICE                          3
 #define MSG_STR_LEN_OF_PORTS                           4
 #define MSG_STR_LEN_OF_PORTS_PERIOD            (MSG_STR_LEN_OF_PORTS*4)
@@ -118,14 +113,16 @@ typedef struct
 	u32 msg_expect;
 	char atcmd_ack[LENGTH_ATCMD_ACK];
 	char device_on_cmd_string[LENGTH_DEVICE_OPEN_CMD];
-	char usart_data[LENGTH_DEVICE_OPEN_CMD];
+	char usart_data[LENGTH_USART_DATA];
+	char sms_backup[LENGTH_SMS_BACKUP];
 }t_DEV;
 
 typedef struct
 {
 	char id[MSG_STR_LEN_OF_ID+1];
 	char length[MSG_STR_LEN_OF_LENGTH+1];
-	char seq[MSG_STR_LEN_OF_SEQ+1];	
+	char seq[MSG_STR_LEN_OF_SEQ+1];
+	//char dup[MSG_STR_LEN_OF_DUP+1];
 	char device[MSG_STR_LEN_OF_DEVICE+1];
 	char ports[MSG_STR_LEN_OF_PORTS+1];
 	char period[MSG_STR_LEN_OF_PORTS_PERIOD+1];
@@ -193,5 +190,6 @@ enum
 
 extern const char *msg_id[MSG_STR_ID_MAX];
 extern const char *msg_id_s[MSG_STR_ID_MAX];
+extern char  *cell;
 #endif
 

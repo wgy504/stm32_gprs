@@ -23,6 +23,8 @@ const char  *port = "8090";
 const char delim=',';
 const char ending='#';
 
+char  *cell = "13910138465";
+
 //存储PCB_ID的数组（也就是SIM卡的ICCID）
 char ICCID_BUF[LENGTH_ICCID_BUF+1] = {0};
 
@@ -434,7 +436,7 @@ u8 SIM800_GPRS_CGCLASS(void)
 }
 
 
-	//设置PDP上下文,互联网接协议,接入点等信息
+//设置PDP上下文,互联网接协议,接入点等信息
 u8 SIM800_GPRS_CGDCONT(void)
 {
 	u8 count = COUNT_AT;
@@ -585,6 +587,104 @@ u8 Check_Link_Status(void)
 
 }
 #endif
+
+//设置文本模式 
+u8 SIM800_CMGF_Set(void)
+{
+	u8 count = COUNT_AT;
+	u8 ret = CMD_ACK_NONE;
+	while(count != 0)
+	{
+		ret = SIM800_Send_Cmd("AT+CMGF=1","OK",1000);
+		if(ret == CMD_ACK_NONE)
+		{
+			delay_ms(2000);
+		}
+		else if((ret == CMD_ACK_OK) || (ret == CMD_ACK_DISCONN))
+			break;
+		
+		count--;
+	}
+
+	delay_ms(2000);	
+	return ret;
+}
+
+//设置短消息文本模式参数 
+u8 SIM800_CSMP_Set(void)
+{
+	u8 count = COUNT_AT;
+	u8 ret = CMD_ACK_NONE;
+	while(count != 0)
+	{
+		ret = SIM800_Send_Cmd("AT+CSMP=17,167,0,0","OK",200);
+		if(ret == CMD_ACK_NONE)
+		{
+			delay_ms(2000);
+		}
+		else if((ret == CMD_ACK_OK) || (ret == CMD_ACK_DISCONN))
+			break;
+		
+		count--;
+	}
+	
+	delay_ms(2000);	
+	return ret;
+}
+
+u8 SIM800_CSCS_Set(void)
+{
+	u8 count = COUNT_AT;
+	u8 ret = CMD_ACK_NONE;
+	while(count != 0)
+	{
+		ret = SIM800_Send_Cmd("AT+CSCS=\"GSM\"","OK",200);
+		if(ret == CMD_ACK_NONE)
+		{
+			delay_ms(2000);
+		}
+		else if((ret == CMD_ACK_OK) || (ret == CMD_ACK_DISCONN))
+			break;
+		
+		count--;
+	}
+	
+	delay_ms(2000);	
+	return ret;
+}
+
+char *SIM800_SMS_Create(char *sms_data, char *raw)
+{
+	sprintf((char*)sms_data,"Dev Status: %d, Msg expect: %d, Msg recv: %d, HB: %d, HB TIMER: %d, Msg TIMEOUT: %d, Msg: \"%s\"\r\n", dev.status, dev.msg_expect, dev.msg_recv, dev.hb_count, dev.hb_timer, dev.msg_timeout, raw); 
+	return sms_data;
+}
+
+u8 SIM800_SMS_Notif(char *phone, char *sms)
+{
+	u8 ret = CMD_ACK_NONE;
+	u8 sms_cmd[100]={0};
+	//u8 sms_data[100]={0};
+
+	if((ret = Check_Module()) == CMD_ACK_OK)
+		if((ret = Disable_Echo()) == CMD_ACK_OK)
+			if((ret = Check_SIM_Card()) == CMD_ACK_OK)	
+				if((SIM800_CSCS_Set()) == CMD_ACK_OK)
+					if((ret = SIM800_CMGF_Set()) == CMD_ACK_OK)
+						if((ret = SIM800_CSMP_Set()) == CMD_ACK_OK)
+						{		
+							sprintf((char*)sms_cmd,"AT+CMGS=\"%s\"\r\n",phone); 
+							if(SIM800_Send_Cmd(sms_cmd,">",200)==CMD_ACK_OK)					//发送短信命令+电话号码
+							{
+								//sprintf((char*)sms_data,"Dev Status: %d, Msg expect: %d, Msg recv: %d, HB: %d, HB TIMER: %d, Msg TIMEOUT: %d Msg: \"%s\"\r\n", dev.status, dev.msg_expect, dev.msg_recv, dev.hb_count, dev.hb_timer, dev.msg_timeout, current); 
+								BSP_Printf("SMS: %s\r\n", sms);
+								u3_printf("%s",sms);		 						//发送短信内容到GSM模块 
+								delay_ms(500);                                   //必须延时，否则不能发送短信
+								ret = SIM800_Send_Cmd((u8*)0X1A,"+CMGS:",2000); //发送结束符,等待发送完成(最长等待10秒钟,因为短信长了的话,等待时间会长一些)
+							}  			
+						}
+
+	return ret;
+}
 
 //开启2G模块的电源芯片，当做急停按钮来使用
 void SIM800_POWER_ON(void)
@@ -814,10 +914,10 @@ u8 Get_Device_Upload_Str(u8 msg_str_id, char *msg_str)
 	if(msg_str_id>=MSG_STR_ID_MAX)
 		return 0;
 
-	strncat(msg->id, msg_id[msg_str_id], MSG_STR_LEN_OF_ID);
+	strncpy(msg->id, msg_id[msg_str_id], MSG_STR_LEN_OF_ID);
 	msg->id[MSG_STR_LEN_OF_ID] = delim;
 
-  	strncat(msg->length, "000", MSG_STR_LEN_OF_LENGTH);
+  	strncpy(msg->length, "000", MSG_STR_LEN_OF_LENGTH);
 	msg->length[MSG_STR_LEN_OF_LENGTH] = delim;
 
 	if(dev.status == CMD_OPEN_DEVICE)
@@ -829,8 +929,11 @@ u8 Get_Device_Upload_Str(u8 msg_str_id, char *msg_str)
 	  	sprintf(msg->seq,"%03d",++dev.msg_seq);	
 	}
 	msg->seq[MSG_STR_LEN_OF_SEQ] = delim;
+
+  	//sprintf(msg->dup, "%02d", dev.msg_timeout);
+	//msg->dup[MSG_STR_LEN_OF_DUP] = delim;
 	
-	strncat(msg->device, msg_device, MSG_STR_LEN_OF_DEVICE);
+	strncpy(msg->device, msg_device, MSG_STR_LEN_OF_DEVICE);
 	msg->device[MSG_STR_LEN_OF_DEVICE] = delim;
 
 	//由于读取的是GPIO 高低，因此是设备实时状态
@@ -846,9 +949,9 @@ u8 Get_Device_Upload_Str(u8 msg_str_id, char *msg_str)
 	switch(msg_str_id)
 	{
 		case MSG_STR_ID_LOGIN:
-			strcat(p_left, "SIM800_");
+			strcpy(p_left, "SIM800_");
 			p_left += strlen("SIM800_");
-			strncat(p_left, ICCID_BUF, LENGTH_ICCID_BUF);
+			strncpy(p_left, ICCID_BUF, LENGTH_ICCID_BUF);
 			p_left += LENGTH_ICCID_BUF;
 			*p_left++ = delim;
 		break;
@@ -876,6 +979,9 @@ u8 Get_Device_Upload_Str(u8 msg_str_id, char *msg_str)
 	*p_left++ = ending;
 	*p_left = 0;
 
+	memset(dev.sms_backup, 0, sizeof(dev.sms_backup));
+	strncpy(dev.sms_backup, msg_str, strlen(msg_str));
+	
 	return strlen(msg_str);
 }
 
@@ -990,146 +1096,6 @@ u8 Send_Heart_Data_To_Server(void)
 	ret = Send_Heart_Data_Normal();
 	return ret;
 }
-
-#if 0
-void Get_Resend_Data(void)
-{
-	char temp_Resend_Buffer[LENGTH_RESEND] = {0}; 
-	char temp_Result[3] = {0}; 
-	u8 Result_Validation = 0;
-	u8 i = 0;
-	char temp00[] = "TRVAP98,009,000,";
-	char temp01[] = ",";
-	char temp02[] = "#";
-	char temp03[] = "0";
-	char temp04[] = "00";
-	
-
-	//清零Resend_Buffer
-	for(i = 0; i < LENGTH_RESEND; i++)
-	{
-		Resend_Buffer[i] = 0;
-	}
-	
-	//添加TRVAP98,FF,000,
-	
-	for(i = 0; i < strlen(temp00); i++)
-	{
-		temp_Resend_Buffer[i] = temp00[i];
-	}
-	strcat(Resend_Buffer,temp_Resend_Buffer);
-	Clear_buffer(temp_Resend_Buffer,LENGTH_RESEND);
-	
-	//添加校验和
-	Result_Validation = Check_Xor_Sum(Resend_Buffer, strlen(Resend_Buffer));
-	
-	//校验值转化为字符串
-	sprintf(temp_Result,"%d",Result_Validation);
-	
-	//添加校验值
-	//判断校验值是否是三个字符
-	//校验值是三个字符，直接拼接
-
-	if(strlen(temp_Result) == 1)
-	{
-		//添加校验值
-		for(i = 0; i < 2; i++)
-		{
-			temp_Resend_Buffer[i] = temp04[i];
-		}
-		temp_Resend_Buffer[2] = temp_Result[0];
-		
-		strcat(Resend_Buffer,temp_Resend_Buffer);
-		Clear_buffer(temp_Result,3);
-		Clear_buffer(temp_Resend_Buffer,LENGTH_RESEND);
-	}
-	if(strlen(temp_Result) == 2)
-	{
-		//添加校验值
-		temp_Resend_Buffer[0] = temp03[0];
-		temp_Resend_Buffer[1] = temp_Result[0];
-		temp_Resend_Buffer[2] = temp_Result[1];
-		
-		strcat(Resend_Buffer,temp_Resend_Buffer);
-		Clear_buffer(temp_Result,3);
-		Clear_buffer(temp_Resend_Buffer,LENGTH_RESEND);
-	}
-	if(strlen(temp_Result) == 3)
-	{
-			//添加校验值
-		for(i = 0; i < strlen(temp_Result); i++)
-		{
-			temp_Resend_Buffer[i] = temp_Result[i];
-		}
-		strcat(Resend_Buffer,temp_Resend_Buffer);
-		Clear_buffer(temp_Result,3);
-		Clear_buffer(temp_Resend_Buffer,LENGTH_RESEND);
-	}	
-	
-	//添加,分隔符
-	for(i = 0; i < strlen(temp01); i++)
-	{
-		temp_Resend_Buffer[i] = temp01[i];
-	}
-	strcat(Resend_Buffer,temp_Resend_Buffer);
-	Clear_buffer(temp_Resend_Buffer,LENGTH_RESEND);
-	
-	
-	//添加结束符  #
-	for(i = 0; i < strlen(temp02); i++)
-	{
-		temp_Resend_Buffer[i] = temp02[i];
-	}
-	strcat(Resend_Buffer,temp_Resend_Buffer);
-	Clear_buffer(temp_Resend_Buffer,LENGTH_RESEND);
-
-
-}
-
-//收到的消息校验错误，要求服务器重新发送
-u8 Send_Resend_Data(void)
-{
-	u8 ret = CMD_ACK_NONE;
-	Get_Resend_Data();
-	ret = Send_Data_To_Server(Resend_Buffer);
-	return ret;
-}
-
-u8 Send_Resend_Data_Normal(void)
-{
-	u8 temp = 0;
-	u8 ret = CMD_ACK_NONE;
-	u8 count = 5;	//执行count次，还不成功的话，就重启GPRS
-	while(count != 0)
-	{
-		//Clear_Usart3();
-		ret = Send_Resend_Data();
-		//Clear_Usart3();
-		if(ret == CMD_ACK_NONE)
-		{
-			//发送数据失败
-			for(temp = 0; temp < 30; temp++)
-			{
-				delay_ms(1000);
-			}
-		}
-		else if((ret == CMD_ACK_OK) ||(ret == CMD_ACK_DISCONN))
-			break;
-		count --;
-	}
-
-	return ret;
-
-}
-
-u8 Send_Resend_Data_To_Server(void)
-{
-	u8 ret = CMD_ACK_NONE;
-	//current_cmd =  之前的流程，所以不需要改变;		
-	ret = Send_Resend_Data_Normal();
-	return ret;
-}
-#endif
 
 //发送接收业务指令完成回文给服务器
 u8 Send_Open_Device_Data(void)

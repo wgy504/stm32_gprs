@@ -67,6 +67,7 @@ void Reset_Device_Status(u8 status)
 int main(void)
 {
 	u8 i;
+	char sms_data[100];
 	//设置中断优先级分组为组2：2位抢占优先级，2位响应优先级
 	NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2); 
 	/* Enable GPIOx Clock */
@@ -105,17 +106,19 @@ int main(void)
 	//连接服务器失败，闪烁一颗LED作为提醒，后期用短信来替换
 	if(SIM800_Link_Server() != CMD_ACK_OK)
 	{
-		BSP_Printf("SIM800C连接服务器失败，请检查\r\n");
+		BSP_Printf("INIT: Failed to connect to Server\r\n");
+		dev.need_reset = TRUE;
 		//while(1){闪烁LED}
 	}
 	
 	BSP_Printf("SIM800C连接服务器完成\r\n");
-	
+
 	//程序运行至此，已经成功的链接上服务器，下面发送登录信息给服务器
 		//发送登录信息给服务器失败，闪烁一颗LED作为提醒，后期用短信来替换
 	if(Send_Login_Data_To_Server() != CMD_ACK_OK)
 	{
-		BSP_Printf("SIM800C发送登录信息给服务器失败，请检查\r\n");
+		BSP_Printf("INIT: Failed to Send Login Data to Server\r\n");
+		dev.need_reset = TRUE;
 		//while(1){闪烁LED}
 	}
 	BSP_Printf("SIM800C发送登录信息给服务器完成\r\n");
@@ -138,6 +141,9 @@ int main(void)
 	
 		if(dev.need_reset)
 		{
+			memset(sms_data, 0, sizeof(sms_data));
+			SIM800_SMS_Create(sms_data, dev.sms_backup);	
+			
 			BSP_Printf("开始重启\r\n");	
 			TIM_Cmd(TIM7, DISABLE);
 			dev.msg_recv = 0;			
@@ -145,7 +151,9 @@ int main(void)
 			//dev.need_reset = FALSE;
 			SIM800_Powerkey_Restart(); 
 			Clear_Usart3();
-			TIM_Cmd(TIM7, ENABLE);
+			TIM_Cmd(TIM7, ENABLE);	
+
+			SIM800_SMS_Notif(cell, sms_data);
 			if(SIM800_Link_Server() != CMD_ACK_OK)
 			{
 				BSP_Printf("重启连接服务器失败\r\n");
