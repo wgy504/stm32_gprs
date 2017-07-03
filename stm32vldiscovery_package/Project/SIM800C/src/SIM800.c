@@ -930,8 +930,8 @@ u8 Get_Device_Upload_Str(u8 msg_str_id, char *msg_str)
 	}
 	msg->seq[MSG_STR_LEN_OF_SEQ] = delim;
 
-  	//sprintf(msg->dup, "%02d", dev.msg_timeout);
-	//msg->dup[MSG_STR_LEN_OF_DUP] = delim;
+  	sprintf(msg->dup, "%02d", dev.msg_timeout);
+	msg->dup[MSG_STR_LEN_OF_DUP] = delim;
 	
 	strncpy(msg->device, msg_device, MSG_STR_LEN_OF_DEVICE);
 	msg->device[MSG_STR_LEN_OF_DEVICE] = delim;

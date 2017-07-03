@@ -122,7 +122,7 @@ typedef struct
 	char id[MSG_STR_LEN_OF_ID+1];
 	char length[MSG_STR_LEN_OF_LENGTH+1];
 	char seq[MSG_STR_LEN_OF_SEQ+1];
-	//char dup[MSG_STR_LEN_OF_DUP+1];
+	char dup[MSG_STR_LEN_OF_DUP+1];
 	char device[MSG_STR_LEN_OF_DEVICE+1];
 	char ports[MSG_STR_LEN_OF_PORTS+1];
 	char period[MSG_STR_LEN_OF_PORTS_PERIOD+1];

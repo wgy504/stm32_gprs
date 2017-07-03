@@ -79,6 +79,7 @@ int main(void)
 	//注意串口1仅仅用来发送，接收的宏没有使能
 	//#define EN_USART1_RX 			   0		//使能（1）/禁止（0）串口1接收
 	usart1_init(115200);                            //串口1,Log
+	//usart1_init(57600);                            //串口1,Log
 #endif
 
 	usart3_init(115200);                            //串口3,对接SIM800
