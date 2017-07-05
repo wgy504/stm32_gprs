@@ -104,22 +104,19 @@ int main(void)
 		BSP_Printf("Power[%d]: %d\n", i, Device_Power_Status(i));
 	}
 	
-	//连接服务器失败，闪烁一颗LED作为提醒，后期用短信来替换
 	if(SIM800_Link_Server() != CMD_ACK_OK)
 	{
 		BSP_Printf("INIT: Failed to connect to Server\r\n");
-		dev.need_reset = TRUE;
+		dev.need_reset = ERR_INIT_LINK_SERVER;
 		//while(1){闪烁LED}
 	}
 	
 	BSP_Printf("SIM800C连接服务器完成\r\n");
 
-	//程序运行至此，已经成功的链接上服务器，下面发送登录信息给服务器
-		//发送登录信息给服务器失败，闪烁一颗LED作为提醒，后期用短信来替换
 	if(Send_Login_Data_To_Server() != CMD_ACK_OK)
 	{
 		BSP_Printf("INIT: Failed to Send Login Data to Server\r\n");
-		dev.need_reset = TRUE;
+		dev.need_reset = ERR_INIT_SEND_LOGIN;
 		//while(1){闪烁LED}
 	}
 	BSP_Printf("SIM800C发送登录信息给服务器完成\r\n");
@@ -140,7 +137,7 @@ int main(void)
 		//BSP_Printf("Main_S Dev Status: %d, Msg expect: %d, Msg recv: %d\r\n", dev.status, dev.msg_expect, dev.msg_recv);
 		//BSP_Printf("Main_S HB: %d, HB TIMER: %d, Msg TIMEOUT: %d\r\n", dev.hb_count, dev.hb_timer, dev.msg_timeout);
 	
-		if(dev.need_reset)
+		if(dev.need_reset != ERR_NONE)
 		{
 			memset(sms_data, 0, sizeof(sms_data));
 			SIM800_SMS_Create(sms_data, dev.sms_backup);	
@@ -158,7 +155,7 @@ int main(void)
 			if(SIM800_Link_Server() != CMD_ACK_OK)
 			{
 				BSP_Printf("重启连接服务器失败\r\n");
-				dev.need_reset = TRUE;
+				dev.need_reset = ERR_RESET_LINK_SERVER;
 			}
 		}
 		else
@@ -171,7 +168,7 @@ int main(void)
 						if(Send_Login_Data_To_Server() != CMD_ACK_OK)
 						{
 							BSP_Printf("SIM800C发送登录信息给服务器失败\r\n");
-							dev.need_reset = TRUE;
+							dev.need_reset = ERR_SEND_LOGIN;
 						}
 						else
 						{
@@ -188,7 +185,7 @@ int main(void)
 						if(Send_Heart_Data_To_Server() != CMD_ACK_OK)
 						{
 							BSP_Printf("SIM800C发送心跳信息给服务器失败\r\n");
-							dev.need_reset = TRUE;
+							dev.need_reset = ERR_SEND_HB;
 						}
 						else
 						{
@@ -204,7 +201,7 @@ int main(void)
 						if(Send_Close_Device_Data_To_Server() != CMD_ACK_OK)
 						{
 							BSP_Printf("SIM800C发送设备关闭给服务器失败\r\n");
-							dev.need_reset = TRUE;
+							dev.need_reset = ERR_SEND_CLOSE_DEVICE;
 						}
 						else
 						{
@@ -265,7 +262,7 @@ int main(void)
 					if(Send_Open_Device_Data_To_Server() != CMD_ACK_OK)
 					{
 						BSP_Printf("发送打开设备回文失败\r\n");
-						dev.need_reset = TRUE;			
+						dev.need_reset = ERR_SEND_OPEN_DEVICE;			
 					}
 					else
 					{

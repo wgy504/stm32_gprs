@@ -104,7 +104,7 @@ typedef struct
 	u8 status;
 	u8 hb_timer;   //hb always running
 	u8 reply_timeout;
-	bool need_reset;
+	u8 need_reset;
 	u16 hb_count;
 	u8 msg_seq;
 	u8 msg_seq_s;
@@ -186,6 +186,26 @@ enum
 	MSG_STR_ID_CLOSE,
 
 	MSG_STR_ID_MAX
+};
+
+enum
+{
+	ERR_NONE = 0,
+		
+	ERR_INIT_LINK_SERVER,
+	ERR_INIT_SEND_LOGIN,
+	ERR_RESET_LINK_SERVER,     
+	
+	ERR_SEND_LOGIN,	
+	ERR_SEND_HB,
+	ERR_SEND_CLOSE_DEVICE,
+	
+	ERR_SEND_OPEN_DEVICE,	
+	ERR_RETRY_TOO_MANY_TIMES,	
+
+	ERR_DISCONNECT,	
+
+	ERR_SEND_CMD,	
 };
 
 extern const char *msg_id[MSG_STR_ID_MAX];

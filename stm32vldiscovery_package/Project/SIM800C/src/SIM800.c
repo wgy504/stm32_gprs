@@ -74,7 +74,7 @@ u8 SIM800_Send_Cmd(u8 *cmd,u8 *ack,u16 waittime)
 		{ 
 			delay_ms(10);	
 			//if(dev.msg_recv & MSG_DEV_RESET)
-			if(dev.need_reset)
+			if(dev.need_reset != ERR_NONE)
 			{
 				ret = CMD_ACK_DISCONN;
 				break;
@@ -152,6 +152,9 @@ u8 Check_SIM_Card(void)
 {
 	u8 count = COUNT_AT;
 	u8 ret = CMD_ACK_NONE;
+	delay_ms(10000);
+	delay_ms(10000);
+	delay_ms(10000);
 	while(count != 0)
 	{
 		ret = SIM800_Send_Cmd("AT+CPIN?","OK",1000);
@@ -202,7 +205,7 @@ u8 Check_CSQ(void)
 	u8 p[50] = {0}; 
   	u8 signal=0;
 
-	while(signal < 10)
+	while(signal < 5)
 	{
 		delay_ms(2000);
 		while(count != 0)
@@ -291,7 +294,7 @@ u8 SIM800_GPRS_ON(void)
 {
 	u8 ret = CMD_ACK_NONE;	
 	if((ret = Link_Server_AT(0, ipaddr, port)) == CMD_ACK_OK)
-		dev.need_reset = FALSE;
+		dev.need_reset = ERR_NONE;
 	
 	//Clear_Usart3();	
 	return ret;
@@ -478,8 +481,6 @@ u8 Link_Server_AT(u8 mode,const char* ipaddr,const char *port)
 	//发起连接
 	//AT+IPSTART指令可能的回文是：CONNECT OK 和ALREADY CONNECT和CONNECT FAIL
 	//这里先取三种可能回文的公共部分来作为判断该指令有正确回文的依据
-
-
 	while(count != 0)
 	{
 		ret = SIM800_Send_Cmd(p,"CONNECT",3000);
@@ -491,6 +492,18 @@ u8 Link_Server_AT(u8 mode,const char* ipaddr,const char *port)
 			break;
 		
 		count--;
+		
+		ret = SIM800_Send_Cmd("AT+CIPSTATUS","OK",500);
+		if(ret == CMD_ACK_OK)
+		{
+			if(strstr((const char*)(dev.usart_data),"CONNECT OK") != NULL)
+				return ret;
+			if(strstr((const char*)(dev.usart_data),"CLOSED") != NULL)
+			{
+				ret = SIM800_Send_Cmd("AT+CIPCLOSE=1","CLOSE OK",500);
+				ret = SIM800_Send_Cmd("AT+CIPSHUT","SHUT OK",500);
+			}
+		}
 	}
 		
 	//AT指令已经指令完成，下面对返回值进行处理
@@ -519,7 +532,7 @@ u8 Send_Data_To_Server(char* data)
 		return CMD_ACK_OK;
 	}
 	
-	if(dev.need_reset)
+	if(dev.need_reset != ERR_NONE)
 	{
 		BSP_Printf("Send_Data_To_Server: Need Reset\r\n");	
 		ret = CMD_ACK_DISCONN;
@@ -655,7 +668,8 @@ u8 SIM800_CSCS_Set(void)
 
 char *SIM800_SMS_Create(char *sms_data, char *raw)
 {
-	sprintf((char*)sms_data,"Dev Status: %d, Msg expect: %d, Msg recv: %d, HB: %d, HB TIMER: %d, Msg TIMEOUT: %d, Msg: \"%s\"\r\n", dev.status, dev.msg_expect, dev.msg_recv, dev.hb_count, dev.hb_timer, dev.msg_timeout, raw); 
+	sprintf((char*)sms_data,"Reset Type: %d, Dev Status: %d, Msg expect: %d, Msg recv: %d, HB: %d, HB TIMER: %d, Msg TIMEOUT: %d, Msg: \"%s\"\r\n", dev.need_reset, 
+		dev.status, dev.msg_expect, dev.msg_recv, dev.hb_count, dev.hb_timer, dev.msg_timeout, raw); 
 	return sms_data;
 }
 
@@ -763,7 +777,7 @@ void SIM800_PWRKEY_ON(void)
 		delay_ms(1000);	
 	}
 	dev.msg_recv = 0;	
-	dev.need_reset = FALSE;
+	dev.need_reset = ERR_NONE;
 	Reset_Device_Status(CMD_NONE);
 	Clear_Usart3();
 }
@@ -846,7 +860,7 @@ u8 SIM800_Link_Server_AT(void)
 	if((ret = Check_Module()) == CMD_ACK_OK)
 		if((ret = Disable_Echo()) == CMD_ACK_OK)
 			if((ret = Check_SIM_Card()) == CMD_ACK_OK)
-				//if((ret = Check_CSQ()) == CMD_ACK_OK)
+				if((ret = Check_CSQ()) == CMD_ACK_OK)
 					if((ret = Get_ICCID()) == CMD_ACK_OK)
 						//if((ret = Check_OPS()) == CMD_ACK_OK)
 							//if((ret = SIM800_GPRS_OFF()) == CMD_ACK_OK)

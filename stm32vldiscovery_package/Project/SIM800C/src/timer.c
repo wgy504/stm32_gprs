@@ -131,7 +131,7 @@ void TIM6_DAC_IRQHandler(void)
 		{	
 			BSP_Printf("Retry sending too many times, need reset\n");	
 			dev.msg_timeout = 0;
-			dev.need_reset = TRUE;
+			dev.need_reset = ERR_RETRY_TOO_MANY_TIMES;
 		}	
 		//BSP_Printf("TIM6_E Dev Status: %d, Msg expect: %d, Msg recv: %d\r\n", dev.status, dev.msg_expect, dev.msg_recv);
 		//BSP_Printf("TIM6_E HB: %d, HB TIMER: %d, Msg TIMEOUT: %d\r\n", dev.hb_count, dev.hb_timer, dev.msg_timeout);
@@ -167,7 +167,7 @@ void TIM7_IRQHandler(void)
 		if((strstr((const char*)USART3_RX_BUF,"CLOSED")!=NULL) || (strstr((const char*)USART3_RX_BUF,"+PDP: DEACT")!=NULL))
 		{
 			//dev.msg_recv |= MSG_DEV_RESET;
-			dev.need_reset = TRUE;
+			dev.need_reset = ERR_DISCONNECT;
 		}
 		else
 		{	
@@ -179,7 +179,7 @@ void TIM7_IRQHandler(void)
 					if((strstr(dev.atcmd_ack, ">")!=NULL) && (strstr((const char*)USART3_RX_BUF,"ERROR")!=NULL))
 					{
 						//dev.msg_recv |= MSG_DEV_RESET;
-						dev.need_reset = TRUE;
+						dev.need_reset = ERR_SEND_CMD;
 					}
 					
 					if(strstr((const char*)USART3_RX_BUF, dev.atcmd_ack) != NULL)
