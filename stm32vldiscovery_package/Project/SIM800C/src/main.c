@@ -151,7 +151,7 @@ int main(void)
 			Clear_Usart3();
 			TIM_Cmd(TIM7, ENABLE);	
 
-			SIM800_SMS_Notif(cell, sms_data);
+			//SIM800_SMS_Notif(cell, sms_data);
 			if(SIM800_Link_Server() != CMD_ACK_OK)
 			{
 				BSP_Printf("重启连接服务器失败\r\n");
@@ -221,27 +221,32 @@ int main(void)
 					//开启设备并本地计时
 					msg_id = strtok(dev.device_on_cmd_string, ",");
 					if(msg_id)
-						BSP_Printf("msg_id: %s\n", msg_id);
-
+					{
+						//BSP_Printf("msg_id: %s\n", msg_id);
+					}
 					device = strtok(NULL, ",");
 					if(device)
-						BSP_Printf("device: %s\n", device);	
-
+					{						
+						//BSP_Printf("device: %s\n", device);	
+					}
 					seq = strtok(NULL, ",");
 					if(seq)
-						BSP_Printf("seq: %s\n", seq);
-					
+					{						
+						//BSP_Printf("seq: %s\n", seq);
+					}					
 					interfaces = strtok(NULL, ",");
 					if(interfaces)
-						BSP_Printf("ports: %s\n", interfaces);
-
+					{						
+						//BSP_Printf("ports: %s\n", interfaces);
+					}
 					for(i=DEVICE_01; i<DEVICEn; i++)
 						interface_on[i]=(interfaces[i]=='1')?TRUE:FALSE;
 						
 					periods = strtok(NULL, ",");
 					if(periods)
-						BSP_Printf("periods: %s\n", periods);	
-
+					{						
+						//BSP_Printf("periods: %s\n", periods);	
+					}
 					sscanf(periods, "%02d%02d%02d%02d,", &period_on[DEVICE_01], 
 						&period_on[DEVICE_02], &period_on[DEVICE_03], &period_on[DEVICE_04]);
 
@@ -253,7 +258,7 @@ int main(void)
 							g_device_status[i].passed = 0;
 							g_device_status[i].power = ON;		
 							Device_ON(i);
-							BSP_Printf("Port[%d]: %d\n", i, g_device_status[i].total);	
+							//BSP_Printf("Port[%d]: %d\n", i, g_device_status[i].total);	
 						}			
 					}
 					memset(dev.device_on_cmd_string, 0, sizeof(dev.device_on_cmd_string));

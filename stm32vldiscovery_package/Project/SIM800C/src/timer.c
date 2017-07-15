@@ -161,8 +161,8 @@ void TIM7_IRQHandler(void)
 
 		BSP_Printf("USART BUF:%s\r\n",USART3_RX_BUF);
 
-		BSP_Printf("TIM7_S Dev Status: %d, Msg expect: %d, Msg recv: %d\r\n", dev.status, dev.msg_expect, dev.msg_recv);
-		BSP_Printf("TIM7_S HB: %d, HB TIMER: %d, Msg TIMEOUT: %d\r\n", dev.hb_count, dev.hb_timer, dev.msg_timeout);
+		//BSP_Printf("TIM7_S Dev Status: %d, Msg expect: %d, Msg recv: %d\r\n", dev.status, dev.msg_expect, dev.msg_recv);
+		//BSP_Printf("TIM7_S HB: %d, HB TIMER: %d, Msg TIMEOUT: %d\r\n", dev.hb_count, dev.hb_timer, dev.msg_timeout);
 		
 		if((strstr((const char*)USART3_RX_BUF,"CLOSED")!=NULL) || (strstr((const char*)USART3_RX_BUF,"+PDP: DEACT")!=NULL))
 		{
@@ -292,8 +292,8 @@ void TIM7_IRQHandler(void)
 			Clear_Usart3();	
 		}
 		
-		BSP_Printf("TIM7_E Dev Status: %d, Msg expect: %d, Msg recv: %d\r\n", dev.status, dev.msg_expect, dev.msg_recv);
-		BSP_Printf("TIM7_E HB: %d, HB TIMER: %d, Msg TIMEOUT: %d\r\n", dev.hb_count, dev.hb_timer, dev.msg_timeout);
+		//BSP_Printf("TIM7_E Dev Status: %d, Msg expect: %d, Msg recv: %d\r\n", dev.status, dev.msg_expect, dev.msg_recv);
+		//BSP_Printf("TIM7_E HB: %d, HB TIMER: %d, Msg TIMEOUT: %d\r\n", dev.hb_count, dev.hb_timer, dev.msg_timeout);
 	}
 
 }

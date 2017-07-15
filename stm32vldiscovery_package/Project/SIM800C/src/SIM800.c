@@ -152,9 +152,7 @@ u8 Check_SIM_Card(void)
 {
 	u8 count = COUNT_AT;
 	u8 ret = CMD_ACK_NONE;
-	delay_ms(10000);
-	delay_ms(10000);
-	delay_ms(10000);
+	delay_ms(10000);	
 	while(count != 0)
 	{
 		ret = SIM800_Send_Cmd("AT+CPIN?","OK",1000);
@@ -479,7 +477,7 @@ u8 Link_Server_AT(u8 mode,const char* ipaddr,const char *port)
   	sprintf((char*)p,"AT+CIPSTART=\"%s\",\"%s\",\"%s\"",modetbl[mode],ipaddr,port);	
 
 	//发起连接
-	//AT+IPSTART指令可能的回文是：CONNECT OK 和ALREADY CONNECT和CONNECT FAIL
+	//AT+CIPSTART指令可能的回文是：CONNECT OK 和ALREADY CONNECT和CONNECT FAIL
 	//这里先取三种可能回文的公共部分来作为判断该指令有正确回文的依据
 	while(count != 0)
 	{
@@ -772,7 +770,7 @@ void SIM800_PWRKEY_ON(void)
 	}
 	//开机控制引脚释放
 	GPIO_ResetBits(GPIOB,GPIO_Pin_9);
-	for(i = 0; i < 10; i++)
+	for(i = 0; i < 5; i++)
 	{
 		delay_ms(1000);	
 	}
@@ -805,7 +803,7 @@ void SIM800_PWRKEY_OFF(void)
 	}
 	//开机控制引脚释放
 	GPIO_ResetBits(GPIOB,GPIO_Pin_9);
-	for(i = 0; i < 10; i++)
+	for(i = 0; i < 5; i++)
 	{
 		delay_ms(1000);	
 	}
