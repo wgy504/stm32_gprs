@@ -8,7 +8,7 @@
 #include <stdlib.h>
 #include "device.h"
 
-#define COUNT_AT 10
+#define COUNT_AT 3
 
 u8 mode = 0;				//0,TCP连接;1,UDP连接
 const char *modetbl[2] = {"TCP","UDP"};//连接模式
@@ -147,11 +147,34 @@ u8 Disable_Echo(void)
 	
 }
 
+u8 Check_Network(void)
+{
+	u8 count = 20;
+	u8 ret = CMD_ACK_NONE;
+	while(count != 0)
+	{
+		ret = SIM800_Send_Cmd("AT+CREG?","+CREG: 0,1",500);
+		if(ret == CMD_ACK_NONE) 
+		{
+			delay_ms(2000);
+		}
+		else if((ret == CMD_ACK_OK) || (ret == CMD_ACK_DISCONN))  //在正常AT 命令里基本上不可能返回"CLOSED" 吧 ，仅放在这里
+			break;
+		
+		count--;
+	}
+	
+	//Clear_Usart3();	
+	return ret;
+	
+}
+
 //查看SIM是否正确检测到
 u8 Check_SIM_Card(void)
 {
 	u8 count = COUNT_AT;
 	u8 ret = CMD_ACK_NONE;
+
 	delay_ms(10000);	
 	while(count != 0)
 	{
@@ -329,7 +352,7 @@ u8 SIM800_GPRS_Adhere(void)
 	u8 ret = CMD_ACK_NONE;
 	while(count != 0)
 	{
-		ret = SIM800_Send_Cmd("AT+CGATT=1","OK",300);
+		ret = SIM800_Send_Cmd("AT+CGATT=1","OK",1000);
 		if(ret == CMD_ACK_NONE)
 		{
 			delay_ms(2000);
@@ -465,9 +488,6 @@ u8 Link_Server_AT(u8 mode,const char* ipaddr,const char *port)
 	u8 count = COUNT_AT;
 	u8 ret = CMD_ACK_NONE;
 	u8 p[100]={0};
-	//char *temp1 = NULL;
-	//char *temp2 = NULL;
-	char *temp3 = NULL;
 	
 	if(mode)
 		;
@@ -481,7 +501,7 @@ u8 Link_Server_AT(u8 mode,const char* ipaddr,const char *port)
 	//这里先取三种可能回文的公共部分来作为判断该指令有正确回文的依据
 	while(count != 0)
 	{
-		ret = SIM800_Send_Cmd(p,"CONNECT",3000);
+		ret = SIM800_Send_Cmd(p,"CONNECT",15000);
 		if(ret == CMD_ACK_NONE)
 		{
 			delay_ms(2000);
@@ -504,19 +524,6 @@ u8 Link_Server_AT(u8 mode,const char* ipaddr,const char *port)
 		}
 	}
 		
-	//AT指令已经指令完成，下面对返回值进行处理
-	if(ret == CMD_ACK_OK)
-	{
-		//temp1 = strstr((const char*)(dev.usart_data),"CONNECT OK");
-		//temp2 = strstr((const char*)(dev.usart_data),"ALREADY CONNECT");
-		temp3 = strstr((const char*)(dev.usart_data),"CONNECT FAIL");
-					
-		if(temp3 != NULL)
-		{
-			ret = CMD_ACK_NONE;
-		}
-	}
-	//Clear_Usart3();
 	return ret;
 }
 
@@ -666,8 +673,8 @@ u8 SIM800_CSCS_Set(void)
 
 char *SIM800_SMS_Create(char *sms_data, char *raw)
 {
-	sprintf((char*)sms_data,"Reset Type: %d, Dev Status: %d, Msg expect: %d, Msg recv: %d, HB: %d, HB TIMER: %d, Msg TIMEOUT: %d, Msg: \"%s\"\r\n", dev.need_reset, 
-		dev.status, dev.msg_expect, dev.msg_recv, dev.hb_count, dev.hb_timer, dev.msg_timeout, raw); 
+	sprintf((char*)sms_data,"Reset Type: %d, Dev Status: %d, Msg expect: %d, Msg recv: %d, HB: %d, HB TIMER: %d, Msg TIMEOUT: %d, Msg: \"%s\", AT-ACK: %s\r\n", dev.need_reset, 
+		dev.status, dev.msg_expect, dev.msg_recv, dev.hb_count, dev.hb_timer, dev.msg_timeout, raw, dev.atcmd_ack); 
 	return sms_data;
 }
 
@@ -764,13 +771,13 @@ void SIM800_PWRKEY_ON(void)
 	//PWRKEY的使能
 	GPIO_SetBits(GPIOB,GPIO_Pin_9);	
 
-	for(i = 0; i < 5; i++)
+	for(i = 0; i < 2; i++)
 	{
 		delay_ms(1000);	
 	}
 	//开机控制引脚释放
 	GPIO_ResetBits(GPIOB,GPIO_Pin_9);
-	for(i = 0; i < 5; i++)
+	for(i = 0; i < 2; i++)
 	{
 		delay_ms(1000);	
 	}
@@ -797,13 +804,14 @@ void SIM800_PWRKEY_OFF(void)
 	//PWRKEY的使能
 	GPIO_SetBits(GPIOB,GPIO_Pin_9);	
 
-	for(i = 0; i < 5; i++)
+	for(i = 0; i < 2; i++)
 	{
 		delay_ms(1000);	
 	}
 	//开机控制引脚释放
 	GPIO_ResetBits(GPIOB,GPIO_Pin_9);
-	for(i = 0; i < 5; i++)
+
+	for(i = 0; i < 2; i++)
 	{
 		delay_ms(1000);	
 	}
@@ -857,19 +865,20 @@ u8 SIM800_Link_Server_AT(void)
 	//操作AT指令进行联网操作
 	if((ret = Check_Module()) == CMD_ACK_OK)
 		if((ret = Disable_Echo()) == CMD_ACK_OK)
-			if((ret = Check_SIM_Card()) == CMD_ACK_OK)
-				if((ret = Check_CSQ()) == CMD_ACK_OK)
-					if((ret = Get_ICCID()) == CMD_ACK_OK)
-						//if((ret = Check_OPS()) == CMD_ACK_OK)
-							//if((ret = SIM800_GPRS_OFF()) == CMD_ACK_OK)
-								if((ret = SIM800_GPRS_CIPSHUT()) == CMD_ACK_OK)
-									if((ret = SIM800_GPRS_CGCLASS()) == CMD_ACK_OK)
-										if((ret = SIM800_GPRS_CGDCONT()) == CMD_ACK_OK)
-											//if((ret = SIM800_GPRS_Adhere()) == CMD_ACK_OK)
-												if((ret = SIM800_GPRS_Set()) == CMD_ACK_OK)
-													//if((ret = SIM800_GPRS_Dispaly_IP()) == CMD_ACK_OK)
-														if((ret = Link_Server_AT(0, ipaddr, port)) == CMD_ACK_OK)
-															Reset_Device_Status(CMD_LOGIN);
+			if((ret = Check_Network()) == CMD_ACK_OK)		
+				if((ret = Check_SIM_Card()) == CMD_ACK_OK)
+					if((ret = Check_CSQ()) == CMD_ACK_OK)
+						if((ret = Get_ICCID()) == CMD_ACK_OK)
+							//if((ret = Check_OPS()) == CMD_ACK_OK)
+								//if((ret = SIM800_GPRS_OFF()) == CMD_ACK_OK)
+									if((ret = SIM800_GPRS_CIPSHUT()) == CMD_ACK_OK)
+										if((ret = SIM800_GPRS_CGCLASS()) == CMD_ACK_OK)
+											if((ret = SIM800_GPRS_CGDCONT()) == CMD_ACK_OK)
+												//if((ret = SIM800_GPRS_Adhere()) == CMD_ACK_OK)
+													if((ret = SIM800_GPRS_Set()) == CMD_ACK_OK)
+														//if((ret = SIM800_GPRS_Dispaly_IP()) == CMD_ACK_OK)
+															if((ret = Link_Server_AT(0, ipaddr, port)) == CMD_ACK_OK)
+																Reset_Device_Status(CMD_LOGIN);
 
 	return ret;
 }
